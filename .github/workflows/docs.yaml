@@ -29,7 +29,9 @@ jobs:
         run: poetry install --with docs
 
       - name: Build the documentation
-        run: pdoc -o docs/ -d google fuzzydoo
+        run: |
+          source $VENV
+          pdoc -o docs/ -d google fuzzydoo
 
       - uses: actions/upload-pages-artifact@v3
         with:
