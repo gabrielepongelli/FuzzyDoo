@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "fuzzydoo"
+version = "0.1.0"
+description = "A Mutation-Based Structure-Aware Fuzzer for 5G Core Networks"
+authors = ["Gabriele Pongelli <pongelligabriele@gmail.com>"]
+readme = "README.md"
+license = "MIT"
+package-mode = false
+
+[tool.poetry.group.docs]
+optional = true
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+[tool.poetry.group.docs.dependencies]
+pdoc = "^14.7.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

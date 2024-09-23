@@ -1,0 +1,52 @@
+name: Build docs
+
+# Build the documentation whenever there are new tagged commits on main
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+
+# Restrict permissions for CI jobs.
+permissions:
+  contents: read
+
+jobs:
+  # Build the documentation and upload the static HTML files as an artifact.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+
+      - name: Install Dependencies
+        run: poetry install --with docs
+
+      - name: Build the documentation
+        run: pdoc -o docs/ -d google fuzzydoo
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/
+
+  # Deploy the artifact to GitHub pages.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
