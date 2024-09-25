@@ -5,10 +5,10 @@ import errno
 import datetime
 from pathlib import Path
 from typing import List
+from threading import Lock
 
 from ..protocol import Protocol, Message, Route
-from ..message_source import MessageSource
-from ..target import Target
+from ..publisher import Publisher
 from ..monitor import Monitor
 from ..encoder import Encoder
 from ..decoder import Decoder
@@ -27,22 +27,20 @@ class Engine:
     Attributes:
         seed: Seed value for randomization.
         protocols: List of protocols to be fuzzed.
-        message_source: Source of messages that will be fuzzed.
-        target: Target system to which the messages will be forwarded.
+        source: Source of messages that will be fuzzed.
+        target: Target system to which the mutated messages will be forwarded.
         monitors: List of monitors to check the target system's status.
         encoders: List of encoders to prepare the fuzzed data before sending them to `target`.
-        decoders: List of decoders to decode the data received by `message_source` and prepare them 
-            to be fuzzed.
+        decoders: List of decoders to decode the data received by `source` and prepare them to 
+            be fuzzed.
         findings_dir_path: Path to the directory where findings will be stored.
         max_test_cases_per_epoch: Maximum number of test cases to be executed per epoch.
         stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a 
             vulnerability.
-        wait_time_before_epoch_end: Time to wait before terminating an epoch in case no message is 
-            received by `message_source` or by `target` (in seconds).
-        target_restart_timeout: Time to wait after restarting the target system and before checking 
-            for its liveness (in seconds).
-        start_time: Start time of the fuzzing process.
-        end_time: End time of the fuzzing process.
+        wait_time_before_epoch_end: Time to wait before terminating an epoch in case no message 
+            is received by `source` or by `target` (in seconds).
+        target_restart_timeout: Time to wait after restarting the target system and before 
+            checking for its liveness (in seconds).
 
 
     Todo: add an example once everything is done properly.
@@ -51,8 +49,8 @@ class Engine:
     def __init__(self,
                  seed: int,
                  protocols: List[Protocol],
-                 message_source: MessageSource,
-                 target: Target,
+                 source: Publisher,
+                 target: Publisher,
                  monitors: List[Monitor],
                  encoders: List[Encoder],
                  decoders: List[Decoder],
@@ -69,26 +67,26 @@ class Engine:
         Parameters:
             seed: Seed value for randomization.
             protocols: List of protocols to be fuzzed.
-            message_source: Source of messages that will be fuzzed.
-            target: Target system to which the messages will be forwarded.
+            source: Source of messages that will be fuzzed.
+            target: Target system to which the mutated messages will be forwarded.
             monitors: List of monitors to check the target system's status.
             encoders: List of encoders to prepare the fuzzed data before sending them to `target`.
-            decoders: List of decoders to decode the data received by `message_source` and prepare 
-                them to be fuzzed.
+            decoders: List of decoders to decode the data received by `source` and prepare them to 
+                be fuzzed.
             findings_dir_path: Path to the directory where findings will be stored.
             max_test_cases_per_epoch: Maximum number of test cases to be executed per epoch.
             stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a 
                 vulnerability.
             wait_time_before_epoch_end: Time to wait before terminating an epoch in case no message 
-                is received by `message_source` or by `target` (in seconds).
+                is received by `source` or by `target` (in seconds).
             target_restart_timeout: Time to wait after restarting the target system and before 
                 checking for its liveness (in seconds).
         """
 
         self.seed: int = seed
         self.protocols: List[Protocol] = protocols
-        self.message_source: MessageSource = message_source
-        self.target: Target = target
+        self.source: Publisher = source
+        self.target: Publisher = target
         self.encoders: List[Encoder] = encoders
         self.decoders: List[Decoder] = decoders
         self.monitors: List[Monitor] = monitors
@@ -120,6 +118,9 @@ class Engine:
         self._epoch_cases_fuzzed: int = 0
         """Number of test cases fuzzed in the current epoch."""
 
+        self._epoch_stop: bool = False
+        """Flag indicating whether the current epoch has been stopped."""
+
         self._epoch_stop_reason: str | None = None
         """Reason why the current epoch stopped."""
 
@@ -140,6 +141,12 @@ class Engine:
 
         self._run_path: Path | None = None
         """Path to the directory where findings relative to the current run will be stored."""
+
+        self._timestamp_last_message_sent: float | None = None
+        """Timestamp of the last message sent to the source/target system."""
+
+        self._timestamp_last_message_sent_lock: Lock = Lock()
+        """Lock for the `_timestamp_last_message_sent` attribute."""
 
         for mon in monitors:
             mon.add_target(self.target)
@@ -171,16 +178,12 @@ class Engine:
 
         return self._num_cases_actually_fuzzed / self.runtime
 
-    def _restart_target(self) -> bool:
+    def _restart_target(self):
         """Restart the target system and check its liveness.
 
         This function attempts to restart the target system using the available monitors. After 
         restarting, it waits for a specified amount of time to allow the system to settle and 
         finally it checks the liveness of the target system using the monitors.
-
-        Returns:
-            bool: `True` if the target system was successfully restarted and is alive, `False` 
-                otherwise.
         """
 
         self._logger.info("Restarting target")
@@ -209,7 +212,7 @@ class Engine:
                 "No monitor could restart the target... stopping fuzzing")
             self._epoch_stop_reason = "No monitor could restart the target"
 
-        return restarted and is_alive
+        self._epoch_stop = not (restarted and is_alive)
 
     def run(self) -> int:
         """Start to fuzz all the protocols specified.
@@ -264,6 +267,7 @@ class Engine:
 
         self._logger.info("Epoch #%s started", self._current_epoch)
 
+        self._epoch_stop = False
         self._epoch_stop_reason = None
         self._epoch_cases_fuzzed = 0
 
@@ -276,24 +280,35 @@ class Engine:
         iter(self._current_route)
         self._current_msg = next(self._current_route)
 
-        self.message_source.on_message(self._mutate, args=())
-        self._epoch_stop_reason = self.message_source.start(
-            self.wait_time_before_epoch_end)
+        self.source.on_message(self._mutate, args=())
+        self.source.start()
+
+        # infinite loop waiting for epoch stop or for the timeout to expire
+        while not self._epoch_stop:
+            time.sleep(0.5)
+            with self._timestamp_last_message_sent_lock:
+                delta = time.time() - self._timestamp_last_message_sent
+                if delta >= self.wait_time_before_epoch_end:
+                    self.source.stop()
+                    self._epoch_stop = True
+                    self._epoch_stop_reason = "Timeout"
 
         self._logger.info("Epoch #%s terminated for reason: %s",
                           self._current_epoch, self._epoch_stop_reason)
 
-    def _mutate(self, data: bytes) -> bool:
+    def _mutate(self, data: bytes):
         """Callback function called on each new message received.
 
         This function mutates the input message based on the current protocol, message, and fuzzing status.
 
         Args:
             data: The input data that makes up the new message.
-
-        Returns:
-            bool: `True` if the current fuzzing epoch should stop, `False` otherwise.
         """
+
+        with self._timestamp_last_message_sent_lock:
+            # update the timestamp so that the engine doesn't try to stop `source` while processing
+            # this message
+            self._timestamp_last_message_sent = time.time()
 
         to_be_fuzzed = self._current_msg == self._current_route.path[-1].dst
         if to_be_fuzzed:
@@ -322,6 +337,8 @@ class Engine:
             data = enc.encode(data, self._current_proto, self._current_msg)
 
         self.target.send(data)
+        with self._timestamp_last_message_sent_lock:
+            self._timestamp_last_message_sent = time.time()
 
         if to_be_fuzzed:
             self._num_cases_actually_fuzzed += 1
@@ -336,10 +353,8 @@ class Engine:
                     # TODO: handle new result (write to file, log, restart target)
 
                     if self.stop_on_find:
-                        return True
+                        self._epoch_stop = True
 
-            if self._epoch_cases_fuzzed >= self.max_test_cases_per_epoch:
+            if not self._epoch_stop and self._epoch_cases_fuzzed >= self.max_test_cases_per_epoch:
+                self._epoch_stop = True
                 self._epoch_stop_reason = "Max test cases per epoch reached"
-                return True
-
-        return False
