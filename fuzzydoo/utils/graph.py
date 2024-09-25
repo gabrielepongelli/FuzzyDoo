@@ -61,7 +61,8 @@ class Path:
 
         Args:
             path: A list of edges that make up the path.
-            start: The starting node of the path. If not provided, the starting node is set to the source node of the first edge in the path.
+            start: The starting node of the path. If not provided, the starting 
+                node is set to the source node of the first edge in the path.
         """
 
         self.path: List[Edge] = path
@@ -86,7 +87,8 @@ class Path:
         """Returns the next node in the path during iteration.
 
         Returns:
-            The next node in the path. If there are no more nodes, returns None.
+            Node | None: The next node in the path. If there are no more nodes, 
+                returns None.
         """
 
         if self._curr is None:
