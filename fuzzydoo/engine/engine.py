@@ -276,7 +276,7 @@ class Engine:
         iter(self._current_route)
         self._current_msg = next(self._current_route)
 
-        self.message_source.on_message(self._mutate, args=(self,))
+        self.message_source.on_message(self._mutate, args=())
         self._epoch_stop_reason = self.message_source.start(
             self.wait_time_before_epoch_end)
 
