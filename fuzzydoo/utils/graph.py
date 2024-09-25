@@ -43,6 +43,63 @@ class Edge:
         self.dst: Node = dst
 
 
+class Path:
+    """This class represents a path in a graph data structure.
+
+    The Path class is a collection of edges that connect nodes in a specific 
+    order. It provides methods to iterate over the path and retrieve the next 
+    node in the path.
+
+
+    Attributes:
+        path: A list of edges that make up the path.
+        start: The starting node of the path.
+    """
+
+    def __init__(self, path: List[Edge], start: Node | None = None):
+        """Initializes a new instance of the Path class.
+
+        Args:
+            path: A list of edges that make up the path.
+            start: The starting node of the path. If not provided, the starting node is set to the source node of the first edge in the path.
+        """
+
+        self.path: List[Edge] = path
+        self.start: Node = path[0].src if start is None else start
+
+        # keeps track of the current edge in the iteration
+        self._curr: int | None = None
+
+    def __iter__(self):
+        """Returns an iterator for the Path class."""
+
+        for i, edge in enumerate(self.path):
+            if edge.src == self.start:
+                self._curr = i
+
+        if self._curr is None:
+            return None
+
+        return self
+
+    def __next__(self) -> Node | None:
+        """Returns the next node in the path during iteration.
+
+        Returns:
+            The next node in the path. If there are no more nodes, returns None.
+        """
+
+        if self._curr is None:
+            return None
+        node = self.path[self._curr].dst
+
+        self._curr += 1
+        if self._curr >= len(self.path):
+            self._curr = None
+
+        return node
+
+
 class Graph:
     """This class represents a graph data structure.
 
