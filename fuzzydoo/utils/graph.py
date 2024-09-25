@@ -46,7 +46,7 @@ class Edge:
 class Path:
     """This class represents a path in a graph data structure.
 
-    The Path class is a collection of edges that connect nodes in a specific 
+    The `Path` class is a collection of edges that connect nodes in a specific 
     order. It provides methods to iterate over the path and retrieve the next 
     node in the path.
 
