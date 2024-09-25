@@ -88,7 +88,7 @@ class Path:
 
         Returns:
             Node | None: The next node in the path. If there are no more nodes, 
-                returns None.
+                returns `None`.
         """
 
         if self._curr is None:
@@ -162,7 +162,7 @@ class Graph:
         and nodes.
 
         Args:
-            graph_id: The unique identifier for the graph. Defaults to None.
+            graph_id: The unique identifier for the graph. Defaults to `None`.
         """
 
         self.id: int = graph_id
@@ -266,7 +266,7 @@ class Graph:
             value: Value of attribute we are looking for.
 
         Returns:
-            Edge, if `attr` / `value` pair is matched. None otherwise.
+            Edge, if `attr` / `value` pair is matched. `None` otherwise.
         """
 
         # if the attribute to search for is the id, simply return the edge from the internal hash.
@@ -288,7 +288,7 @@ class Graph:
             value: Value of attribute we are looking for.
 
         Returns:
-            Node, if `attr` / `value` pair is matched. None otherwise.
+            Node, if `attr` / `value` pair is matched. `None` otherwise.
         """
 
         # if the attribute to search for is the id, simply return the node from the internal hash.
