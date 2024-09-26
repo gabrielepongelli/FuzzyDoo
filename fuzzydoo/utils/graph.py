@@ -204,7 +204,7 @@ class Graph:
 
                 >>> graph.remove_edge(id)
 
-            or by specifying the edge source and destination::
+            or by specifying the edge source and destination:
 
                 >>> graph.remove_edge(src=source, dst=destination)
 
