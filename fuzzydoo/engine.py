@@ -300,7 +300,11 @@ class Engine:
         # TODO
 
     def _fuzz_protocol(self):
-        """Fuzz all the possible routes for the current protocol."""
+        """Fuzz all the possible routes for the current protocol.
+
+        This function iterates over all the possible paths in the current protocol and fuzzes each 
+        path using the `fuzz_epoch` method.
+        """
 
         self._current_epoch = 0
         self._logger.info("Fuzzing of protocol %s started",
@@ -314,7 +318,14 @@ class Engine:
                           self._current_proto.name)
 
     def _generate_mutations(self, data: Fuzzable) -> List[Mutation]:
-        """Generates a list of mutations for the given data."""
+        """Generates a list of mutations for the given data.
+
+        Parameters:
+            data: The data for which mutations need to be generated.
+
+        Returns:
+            List[Mutation]: A list of mutations generated for the given data.
+        """
 
         # instantiate all the mutators with a seed
         mutators = []
@@ -331,7 +342,7 @@ class Engine:
             if mutation not in mutations:
                 mutations.append(mutation)
 
-            # if the mutator used is exausted then remove it from the list of mutators
+            # if the mutator used is exhausted then remove it from the list of mutators
             try:
                 mutator.next()
             except MutatorCompleted:
@@ -343,8 +354,11 @@ class Engine:
         return mutations
 
     def _fuzz_protocol_epoch(self, generate_only: bool = False):
-        """Fuzz a single epoch for the current protocol."""
+        """Fuzz a single epoch for the current protocol.
 
+        Parameters:
+            generate_only: A flag indicating whether mutations should be only generated and not applied.
+        """
         if generate_only:
             self._logger.info(
                 "Generating mutations for epoch #%s", self._current_epoch)
@@ -455,4 +469,4 @@ class Engine:
 
             if not self._epoch_stop and len(self._epoch_mutations) == 0:
                 self._epoch_stop = True
-                self._epoch_stop_reason = "Exausted all test cases"
+                self._epoch_stop_reason = "Exhausted all test cases"
