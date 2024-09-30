@@ -1,8 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Any, Type
 
-from .mutator import Mutator
-
 
 class Fuzzable(ABC):
     """Represent an entity that can be fuzzed, i.e., whose content (part of or all) can be mutated.
@@ -19,7 +17,7 @@ class Fuzzable(ABC):
         parent (optional): The parent fuzzable entity. Defaults to `None`.
     """
 
-    def __init__(self, name: str, content: List[Type[Mutator]], data_type: type, size: int, bit_length: int, is_modified: bool = False, parent=None):
+    def __init__(self, name: str, content: List[Type], data_type: type, size: int, bit_length: int, is_modified: bool = False, parent=None):
         """Initialize a Fuzzable entity.
 
         This constructor sets up the basic properties of a Fuzzable entity and sets up the 
@@ -47,7 +45,7 @@ class Fuzzable(ABC):
             setattr(self, field.name, field)
 
     @abstractmethod
-    def mutators(self) -> List[Type[Mutator]]:
+    def mutators(self) -> List[Type]:
         """Get all the mutators associated with this fuzzable entity.
 
         This method is intended to be overridden in subclasses to provide a list of mutator classes 
