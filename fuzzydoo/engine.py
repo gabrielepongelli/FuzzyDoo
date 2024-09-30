@@ -430,6 +430,7 @@ class Engine:
 
         if to_be_fuzzed:
 
+            # TODO: parse_fuzzable is not part of the Protocol class
             fuzzable_data = self._current_proto.parse_fuzzable(data)
 
             # if the flag is set, generate mutations and stop the fuzzing process
