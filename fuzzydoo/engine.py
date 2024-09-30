@@ -3,15 +3,22 @@ import logging
 import os
 import errno
 import datetime
-from pathlib import Path
-from typing import List
+import hashlib
+import sys
+import pathlib
+from random import Random
+from typing import List, Any
 from threading import Lock
 
-from ..protocol import Protocol, Message, Route
-from ..publisher import Publisher
-from ..monitor import Monitor
-from ..encoder import Encoder
-from ..decoder import Decoder
+from .protocol import Protocol
+from .proto import Message
+from .publisher import Publisher
+from .monitor import Monitor
+from .encoder import Encoder
+from .decoder import Decoder
+from .fuzzable import Fuzzable
+from .mutator import Mutation, MutatorCompleted
+from .utils import Path
 
 
 class Engine:
@@ -25,7 +32,7 @@ class Engine:
     process, calculate runtime and execution speed, and handle target system restarts.
 
     Attributes:
-        seed: Seed value for randomization.
+        main_seed: Seed value for randomization.
         protocols: List of protocols to be fuzzed.
         source: Source of messages that will be fuzzed.
         target: Target system to which the mutated messages will be forwarded.
@@ -47,14 +54,14 @@ class Engine:
     """
 
     def __init__(self,
-                 seed: int,
+                 main_seed: int,
                  protocols: List[Protocol],
                  source: Publisher,
                  target: Publisher,
                  monitors: List[Monitor],
                  encoders: List[Encoder],
                  decoders: List[Decoder],
-                 findings_dir_path: Path,
+                 findings_dir_path: pathlib.Path,
                  max_test_cases_per_epoch: int,
                  stop_on_find: bool,
                  wait_time_before_epoch_end: int,
@@ -65,7 +72,7 @@ class Engine:
         target systems, monitors, encoders, decoders, findings directory, and other parameters.
 
         Parameters:
-            seed: Seed value for randomization.
+            main_seed: Seed value for randomization.
             protocols: List of protocols to be fuzzed.
             source: Source of messages that will be fuzzed.
             target: Target system to which the mutated messages will be forwarded.
@@ -83,14 +90,14 @@ class Engine:
                 checking for its liveness (in seconds).
         """
 
-        self.seed: int = seed
+        self.main_seed: int = main_seed
         self.protocols: List[Protocol] = protocols
         self.source: Publisher = source
         self.target: Publisher = target
         self.encoders: List[Encoder] = encoders
         self.decoders: List[Decoder] = decoders
         self.monitors: List[Monitor] = monitors
-        self.findings_dir_path: Path | None = findings_dir_path
+        self.findings_dir_path: pathlib.Path | None = findings_dir_path
         self.max_test_cases_per_epoch: int = max_test_cases_per_epoch
         self.stop_on_find: bool = stop_on_find
         self.wait_time_before_epoch_end: int = wait_time_before_epoch_end
@@ -130,7 +137,7 @@ class Engine:
         self._current_msg: Message | None = None
         """Current message being fuzzed inside the current protocol."""
 
-        self._current_route: Route | None = None
+        self._current_route: Path | None = None
         """Current route in the protocol tree being fuzzed."""
 
         self._num_cases_actually_fuzzed: int = 0
@@ -139,7 +146,7 @@ class Engine:
         self._run_id: str | None = None
         """Unique identifier for the current fuzzing run."""
 
-        self._run_path: Path | None = None
+        self._run_path: pathlib.Path | None = None
         """Path to the directory where findings relative to the current run will be stored."""
 
         self._timestamp_last_message_sent: float | None = None
@@ -147,6 +154,19 @@ class Engine:
 
         self._timestamp_last_message_sent_lock: Lock = Lock()
         """Lock for the `_timestamp_last_message_sent` attribute."""
+
+        self._epoch_seed_generator: Random = Random(
+            hashlib.sha512(self.main_seed).digest())
+        """Random number generator used to generate seeds for each epoch."""
+
+        self._epoch_seed: int | None = None
+        """Seed value for the current epoch."""
+
+        self._epoch_random: Random | None = None
+        """Random number generator used inside the current epoch."""
+
+        self._epoch_mutations: List[Mutation] = []
+        """List of mutations to perform during the current epoch."""
 
         for mon in monitors:
             mon.add_target(self.target)
@@ -223,7 +243,7 @@ class Engine:
         # create the findings directory for the current run
         self._run_id = datetime.datetime.now(datetime.timezone.utc).replace(
             microsecond=0).isoformat().replace(":", "-")
-        self._run_path = self.findings_dir_path / Path(self._run_id)
+        self._run_path = self.findings_dir_path / pathlib.Path(self._run_id)
         if not self._run_path.exists():
             try:
                 os.mkdir(self._run_path)
@@ -247,6 +267,38 @@ class Engine:
         self.end_time = time.time()
         return 0
 
+    def fuzz_epoch(self, path: Path, seed: int):
+        """Fuzz a single epoch from a given path.
+
+        Args:
+            path: Path in the protocol to be fuzzed.
+            seed: Seed value for the current epoch.
+        """
+
+        self._current_epoch += 1
+        self._current_route = path
+        self._epoch_seed = seed
+
+        # first we generate the mutations only
+        self._fuzz_protocol_epoch(generate_only=True)
+
+        # then we apply the mutations
+        self._fuzz_protocol_epoch()
+
+    def fuzz_single_test_case(self, path: Path, seed: int, mutation_type: str, mutator_state: Any):
+        """Fuzz a given test case from a given path.
+
+        Args:
+            path: Path in the protocol to be fuzzed.
+            seed: Seed value for the current test case.
+            mutation_type: Type of mutation to be applied.
+            mutator_state: State of the mutator to be used.
+        """
+
+        self._logger.info("Replaying test case with seed %s", seed)
+
+        # TODO
+
     def _fuzz_protocol(self):
         """Fuzz all the possible routes for the current protocol."""
 
@@ -255,18 +307,53 @@ class Engine:
                           self._current_proto.name)
 
         for path in self._current_proto:
-            self._current_route = path
-            self._current_epoch += 1
-            self._fuzz_protocol_epoch()
+            self.fuzz_epoch(path, self._epoch_seed_generator.randint(
+                0, sys.maxsize * 2 + 1))
 
         self._logger.info("Fuzzing of protocol %s ended",
                           self._current_proto.name)
 
-    def _fuzz_protocol_epoch(self):
+    def _generate_mutations(self, data: Fuzzable) -> List[Mutation]:
+        """Generates a list of mutations for the given data."""
+
+        # instantiate all the mutators with a seed
+        mutators = []
+        for mutator in data.mutators():
+            m = mutator(seed=self._epoch_random.randint(
+                0, sys.maxsize * 2 + 1))
+            mutators.append(m)
+
+        # generate the mutations
+        mutations = []
+        while True:
+            mutator = self._epoch_random.choice(mutators)
+            mutation = mutator.mutate(data)
+            if mutation not in mutations:
+                mutations.append(mutation)
+
+            # if the mutator used is exausted then remove it from the list of mutators
+            try:
+                mutator.next()
+            except MutatorCompleted:
+                mutators.remove(mutator)
+
+            if len(mutators) == 0 or len(mutations) >= self.max_test_cases_per_epoch:
+                break
+
+        return mutations
+
+    def _fuzz_protocol_epoch(self, generate_only: bool = False):
         """Fuzz a single epoch for the current protocol."""
 
-        self._logger.info("Epoch #%s started", self._current_epoch)
+        if generate_only:
+            self._logger.info(
+                "Generating mutations for epoch #%s", self._current_epoch)
+        else:
+            self._logger.info("Epoch #%s started", self._current_epoch)
 
+        self._logger.debug("Current seed: %s", self._epoch_seed)
+
+        self._epoch_random = Random(hashlib.sha512(self._epoch_seed).digest())
         self._epoch_stop = False
         self._epoch_stop_reason = None
         self._epoch_cases_fuzzed = 0
@@ -280,29 +367,36 @@ class Engine:
         iter(self._current_route)
         self._current_msg = next(self._current_route)
 
-        self.source.on_message(self._mutate, args=())
+        self.source.on_message(self._mutate, args=(generate_only,))
         self.source.start()
 
         # infinite loop waiting for epoch stop or for the timeout to expire
-        while not self._epoch_stop:
-            time.sleep(0.5)
-            with self._timestamp_last_message_sent_lock:
-                delta = time.time() - self._timestamp_last_message_sent
-                if delta >= self.wait_time_before_epoch_end:
-                    self.source.stop()
-                    self._epoch_stop = True
-                    self._epoch_stop_reason = "Timeout"
+        if not generate_only:
+            while not self._epoch_stop:
+                time.sleep(0.5)
+                with self._timestamp_last_message_sent_lock:
+                    delta = time.time() - self._timestamp_last_message_sent
+                    if delta >= self.wait_time_before_epoch_end:
+                        self.source.stop()
+                        self._epoch_stop = True
+                        self._epoch_stop_reason = "Timeout"
 
-        self._logger.info("Epoch #%s terminated for reason: %s",
-                          self._current_epoch, self._epoch_stop_reason)
+        if generate_only:
+            self._logger.debug("Generated %s mutations",
+                               len(self._epoch_mutations))
+        else:
+            self._logger.info("Epoch #%s terminated for reason: %s",
+                              self._current_epoch, self._epoch_stop_reason)
 
-    def _mutate(self, data: bytes):
+    def _mutate(self, data: bytes, generate_only: bool):
         """Callback function called on each new message received.
 
         This function mutates the input message based on the current protocol, message, and fuzzing status.
 
         Args:
             data: The input data that makes up the new message.
+            generate_only: A flag indicating whether mutations should be only generated and not 
+                applied.
         """
 
         with self._timestamp_last_message_sent_lock:
@@ -324,11 +418,15 @@ class Engine:
 
             fuzzable_data = self._current_proto.parse_fuzzable(data)
 
-            # TODO: mutate data
+            # if the flag is set, generate mutations and stop the fuzzing process
+            if generate_only:
+                self._epoch_mutations = self._generate_mutations(fuzzable_data)
+                self._epoch_stop = True
+                return
 
+            # otherwise, apply one of the previously generated mutations to the data
+            self._epoch_mutations.pop().apply(fuzzable_data)
             data = fuzzable_data
-
-            self._current_route.rollback()
         else:
             self._current_msg = next(self._current_route)
 
@@ -355,6 +453,6 @@ class Engine:
                     if self.stop_on_find:
                         self._epoch_stop = True
 
-            if not self._epoch_stop and self._epoch_cases_fuzzed >= self.max_test_cases_per_epoch:
+            if not self._epoch_stop and len(self._epoch_mutations) == 0:
                 self._epoch_stop = True
-                self._epoch_stop_reason = "Max test cases per epoch reached"
+                self._epoch_stop_reason = "Exausted all test cases"

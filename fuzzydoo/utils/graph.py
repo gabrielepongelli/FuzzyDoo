@@ -25,6 +25,22 @@ class Edge:
         dst: The destination node of the edge.
     """
 
+    @classmethod
+    def calculate_id(cls, src: int, dst: int) -> int:
+        """_summary_
+
+        _extended_summary_
+
+        Args:
+            src (int): _description_
+            dst (int): _description_
+
+        Returns:
+            int: _description_
+        """
+
+        return (src << 32) + dst
+
     def __init__(self, src: Node, dst: Node):
         """Initialize an instance of the Edge class.
 
@@ -38,7 +54,7 @@ class Edge:
             dst: The destination node of the edge.
         """
 
-        self.id: int = (src.id << 32) + dst.id
+        self.id: int = self.calculate_id(src.id, dst.id)
         self.src: Node = src
         self.dst: Node = dst
 
@@ -215,7 +231,7 @@ class Graph:
         """
 
         if not edge_id:
-            edge_id = (src << 32) + dst
+            edge_id = Edge.calculate_id(src, dst)
 
         if edge_id in self.edges:
             del self.edges[edge_id]
