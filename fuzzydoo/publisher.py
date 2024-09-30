@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Tuple, Concatenate, List, Any
 from collections.abc import Callable
+from dataclasses import dataclass
 
 
 OnMessageCallback = Callable[Concatenate[bytes, ...], Any]
@@ -74,3 +75,26 @@ class Publisher(ABC):
         Returns:
             bytes: The received data.
         """
+
+
+@dataclass
+class Target(Publisher):
+    """This class represents a target, i.e., a `Publisher` over a network. It is distinguished by 
+    an address and a port.
+
+    Attributes:
+        address: The network address of the target.
+        port: The network port of the target.
+    """
+
+    def __init__(self, address: str, port: int):
+        """Initialize a new instance of `Target` with the given address and port.
+
+        Args:
+            address: The network address of the target.
+            port: The network port of the target.
+        """
+
+        super().__init__()
+        self.address = address
+        self.port = port

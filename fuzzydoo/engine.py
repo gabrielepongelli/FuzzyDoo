@@ -12,7 +12,7 @@ from threading import Lock
 
 from .protocol import Protocol
 from .proto import Message
-from .publisher import Publisher
+from .publisher import Publisher, Target
 from .monitor import Monitor
 from .encoder import Encoder
 from .decoder import Decoder
@@ -57,7 +57,7 @@ class Engine:
                  main_seed: int,
                  protocols: List[Protocol],
                  source: Publisher,
-                 target: Publisher,
+                 target: Target,
                  monitors: List[Monitor],
                  encoders: List[Encoder],
                  decoders: List[Decoder],
@@ -93,7 +93,7 @@ class Engine:
         self.main_seed: int = main_seed
         self.protocols: List[Protocol] = protocols
         self.source: Publisher = source
-        self.target: Publisher = target
+        self.target: Target = target
         self.encoders: List[Encoder] = encoders
         self.decoders: List[Decoder] = decoders
         self.monitors: List[Monitor] = monitors
