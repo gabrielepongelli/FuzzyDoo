@@ -181,7 +181,8 @@ class SctpProxy:
     def stop(self):
         """Stop the SCTP proxy.
 
-        This method checks if the proxy is already stopped. If not, it stops the thread running the proxy code.
+        This method checks if the proxy is already stopped. If not, it stops the thread running the 
+        proxy code.
         """
 
         # skip if already stopped
@@ -194,7 +195,8 @@ class SctpProxy:
     def _handle_sctp_connection(self, connection_socket: sctp.sctpsocket_tcp):
         """Handle an SCTP connection.
 
-        This function is responsible for managing an SCTP connection between a client connecting to the SCTP server, and an SCTP client connecting to a remote server.
+        This function is responsible for managing an SCTP connection between a client connecting to 
+        the SCTP server, and an SCTP client connecting to a remote server.
 
         Args:
             connection_socket: The SCTP socket representing the client connection to the local SCTP 
