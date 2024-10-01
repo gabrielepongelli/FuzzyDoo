@@ -12,6 +12,7 @@ optional = true
 
 [tool.poetry.dependencies]
 python = "^3.12"
+pysctp = "^0.7.2"
 
 [tool.poetry.group.docs.dependencies]
 pdoc = "^14.7.0"
