@@ -12,6 +12,9 @@ class Node:
 
     id: int
 
+    def __eq__(self, value: object) -> bool:
+        return isinstance(value, Node) and value.id == self.id
+
 
 @dataclass
 class Edge:

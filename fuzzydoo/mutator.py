@@ -25,23 +25,37 @@ class Mutation:
         mutator_state: The state of the mutator at the time of mutation. This attribute can hold
             any additional information about the mutator's state that might be useful for applying 
             the mutation.
-        field_path: The path to the field in the `Fuzzable` object that was mutated. This attribute 
-            allows for precise tracking of the location of the mutation within the data structure.
-        mutated_value: The new value of the mutated field. This attribute holds the value that the 
-            field was changed to as part of the mutation.
+        field_qualified_name: The qualified name of the field in the `Fuzzable` object that was 
+            mutated. This attribute allows for precise tracking of the location of the mutation 
+            within the data structure.
+        mutated_value: The new value of the mutated field. This attribute holds the 
+            value that the field was changed to as part of the mutation. If can be `None` if the 
+            new value is not currently available.
     """
 
-    mutator: type
-    mutator_state: Any
-    field_path: str
-    mutated_value: Any
+    def __init__(self, mutator: type, mutator_state: Any, field_qualified_name: str,
+                 mutated_value: Fuzzable | None = None):
+        """Initialize a `Mutation` object.
+
+        Arguments:
+            mutator: The type of the mutator that generated this mutation.
+            mutator_state: The state of the mutator at the time of mutation.
+            field_qualified_name: The qualified name of the field in the `Fuzzable` object that was 
+                mutated.
+            mutated_value (optional): The new value of the mutated field. Defaults to `None`.
+        """
+
+        self.mutator: type = mutator
+        self.mutator_state: Any = mutator_state
+        self.field_qualified_name: str = field_qualified_name
+        self.mutated_value: Fuzzable | None = mutated_value
 
     def __eq__(self, value: object) -> bool:
         return isinstance(value, Mutation) \
             and self.mutator == value.mutator \
             and self.mutator_state == value.mutator_state \
-            and self.field_path == value.field_path \
-            and self.mutated_value
+            and self.field_qualified_name == value.field_qualified_name \
+            and self.mutated_value == value.mutated_value
 
     def apply(self, data: Fuzzable) -> Fuzzable:
         """Apply this mutation to the specified `data`.
@@ -54,9 +68,10 @@ class Mutation:
         """
 
         mutator = self.mutator()
-        new_mutation = mutator.mutate(
-            data, state=self.mutator_state).mutated_value
-        data.set_content_by_path(self.field_path, new_mutation.mutated_value)
+        mutated_val = mutator.mutate(
+            data.get_content_by_path(self.field_qualified_name),
+            state=self.mutator_state).mutated_value
+        data.set_content_by_path(self.field_qualified_name, mutated_val)
         return data
 
 

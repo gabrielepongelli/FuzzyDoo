@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Concatenate, Any
-from collections.abc import Callable
 from dataclasses import dataclass
 
 
-OnMessageCallback = Callable[Concatenate[bytes, ...], Any]
+class PublisherError(Exception):
+    """Exception raised when a publisher encounters an error during send/receive operations."""
 
 
 class Publisher(ABC):
@@ -17,6 +16,15 @@ class Publisher(ABC):
     Subclasses must implement the `start`, `stop`, `send`, `receive`, and `data_available` methods 
     to provide specific functionality.
     """
+
+    @property
+    @abstractmethod
+    def started(self) -> bool:
+        """Check if the `Publisher` is currently running (i.e., in a running state).
+
+        Returns:
+            bool: `True` if the `Publisher` is running, `False` otherwise.
+        """
 
     @abstractmethod
     def start(self):
@@ -40,6 +48,9 @@ class Publisher(ABC):
 
         Parameters:
             data: The data to be sent.
+
+        Raises:
+            PublisherError: If an error occurs while sending data.
         """
 
     @abstractmethod
@@ -48,6 +59,9 @@ class Publisher(ABC):
 
         Returns:
             bytes: The received data, or `None` if no data is available.
+
+        Raises:
+            PublisherError: If an error occurs while receiving data.
         """
 
     @abstractmethod
@@ -56,6 +70,9 @@ class Publisher(ABC):
 
         Returns:
             bool: `True` if there is data available, `False` otherwise.
+
+        Raises:
+            PublisherError: If an error occurs while checking data availability.
         """
 
 
@@ -80,3 +97,6 @@ class NetworkPublisher(Publisher):
         super().__init__()
         self.address = address
         self.port = port
+
+
+__all__ = ['Publisher', 'PublisherError', 'NetworkPublisher']

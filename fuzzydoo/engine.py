@@ -7,12 +7,10 @@ import hashlib
 import sys
 import pathlib
 from random import Random
-from typing import List, Any
-from threading import Lock
+from typing import Any, List
 
-from .protocol import Protocol
-from .proto import Message
-from .publisher import Publisher, Target
+from .proto import Protocol, MessageParsingError
+from .publisher import Publisher, NetworkPublisher, PublisherError
 from .monitor import Monitor
 from .encoder import Encoder
 from .decoder import Decoder
@@ -21,14 +19,26 @@ from .mutator import Mutation, MutatorCompleted
 from .utils import Path
 
 
+class TestCaseExecutionError(Exception):
+    """Exception raised when an error occurs during test case execution."""
+
+
+class TestCaseSetupError(Exception):
+    """Exception raised when an error occurs during test case setup."""
+
+
+class TargetAvailabilityError(Exception):
+    """Exception raised when the target system is not alive and cannot be restarted."""
+
+
 class Engine:
-    """The `Engine` class is the main component of the FuzzyDoo fuzzing framework. It orchestrates 
-    the entire fuzzing process, including protocol fuzzing, message mutation, encoding, decoding, 
+    """The `Engine` class is the main component of the FuzzyDoo fuzzing framework. It orchestrates
+    the entire fuzzing process, including protocol fuzzing, message mutation, encoding, decoding,
     monitoring, and result handling.
 
-    The `Engine` class is responsible for managing the fuzzing process. It initializes the 
-    necessary components, such as protocols to be fuzzed, message sources, target systems, 
-    monitors, encoders, decoders, and result storage. It also provides methods to start the fuzzing 
+    The `Engine` class is responsible for managing the fuzzing process. It initializes the
+    necessary components, such as protocols to be fuzzed, message sources, target systems,
+    monitors, encoders, decoders, and result storage. It also provides methods to start the fuzzing
     process, calculate runtime and execution speed, and handle target system restarts.
 
     Attributes:
@@ -38,15 +48,15 @@ class Engine:
         target: Target system to which the mutated messages will be forwarded.
         monitors: List of monitors to check the target system's status.
         encoders: List of encoders to prepare the fuzzed data before sending them to `target`.
-        decoders: List of decoders to decode the data received by `source` and prepare them to 
+        decoders: List of decoders to decode the data received by `source` and prepare them to
             be fuzzed.
         findings_dir_path: Path to the directory where findings will be stored.
         max_test_cases_per_epoch: Maximum number of test cases to be executed per epoch.
-        stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a 
+        stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a
             vulnerability.
-        wait_time_before_epoch_end: Time to wait before terminating an epoch in case no message 
+        wait_time_before_test_end: Time to wait before terminating a single test in case no message
             is received by `source` or by `target` (in seconds).
-        target_restart_timeout: Time to wait after restarting the target system and before 
+        target_restart_timeout: Time to wait after restarting the target system and before
             checking for its liveness (in seconds).
 
 
@@ -57,18 +67,19 @@ class Engine:
                  main_seed: int,
                  protocols: List[Protocol],
                  source: Publisher,
-                 target: Target,
+                 target: NetworkPublisher,
                  monitors: List[Monitor],
                  encoders: List[Encoder],
                  decoders: List[Decoder],
                  findings_dir_path: pathlib.Path,
+                 max_attempts_of_target_restart: int,
                  max_test_cases_per_epoch: int,
                  stop_on_find: bool,
-                 wait_time_before_epoch_end: int,
+                 wait_time_before_test_end: int,
                  target_restart_timeout: int):
         """Initialize the `Engine` class with the provided parameters.
 
-        The `Engine` class orchestrates the fuzzing process, managing protocols, message sources, 
+        The `Engine` class orchestrates the fuzzing process, managing protocols, message sources,
         target systems, monitors, encoders, decoders, findings directory, and other parameters.
 
         Parameters:
@@ -78,29 +89,31 @@ class Engine:
             target: Target system to which the mutated messages will be forwarded.
             monitors: List of monitors to check the target system's status.
             encoders: List of encoders to prepare the fuzzed data before sending them to `target`.
-            decoders: List of decoders to decode the data received by `source` and prepare them to 
+            decoders: List of decoders to decode the data received by `source` and prepare them to
                 be fuzzed.
             findings_dir_path: Path to the directory where findings will be stored.
+            max_attempts_of_target_restart: Maximum number of attempts to restart the target system.
             max_test_cases_per_epoch: Maximum number of test cases to be executed per epoch.
-            stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a 
+            stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a
                 vulnerability.
-            wait_time_before_epoch_end: Time to wait before terminating an epoch in case no message 
-                is received by `source` or by `target` (in seconds).
-            target_restart_timeout: Time to wait after restarting the target system and before 
+            wait_time_before_test_end: Time to wait before terminating a single test in case no
+                message is received by `source` or by `target` (in seconds).
+            target_restart_timeout: Time to wait after restarting the target system and before
                 checking for its liveness (in seconds).
         """
 
         self.main_seed: int = main_seed
         self.protocols: List[Protocol] = protocols
         self.source: Publisher = source
-        self.target: Target = target
+        self.target: NetworkPublisher = target
         self.encoders: List[Encoder] = encoders
         self.decoders: List[Decoder] = decoders
         self.monitors: List[Monitor] = monitors
         self.findings_dir_path: pathlib.Path | None = findings_dir_path
+        self.max_attempts_of_target_restart: int = max_attempts_of_target_restart
         self.max_test_cases_per_epoch: int = max_test_cases_per_epoch
         self.stop_on_find: bool = stop_on_find
-        self.wait_time_before_epoch_end: int = wait_time_before_epoch_end
+        self.wait_time_before_test_end: int = wait_time_before_test_end
         self.target_restart_timeout: int = target_restart_timeout
 
         self.start_time: float = time.time()
@@ -119,10 +132,10 @@ class Engine:
                 self._logger.info("Created findings directory %s",
                                   self.findings_dir_path)
 
-        self._current_epoch: int = 0
+        self._current_epoch: int | None = None
         """Current epoch in the fuzzing process."""
 
-        self._epoch_cases_fuzzed: int = 0
+        self._epoch_cases_fuzzed: int | None = None
         """Number of test cases fuzzed in the current epoch."""
 
         self._epoch_stop: bool = False
@@ -134,12 +147,6 @@ class Engine:
         self._current_proto: Protocol | None = None
         """Current protocol being fuzzed."""
 
-        self._current_msg: Message | None = None
-        """Current message being fuzzed inside the current protocol."""
-
-        self._current_route: Path | None = None
-        """Current route in the protocol tree being fuzzed."""
-
         self._num_cases_actually_fuzzed: int = 0
         """Number of test cases actually fuzzed during the current run."""
 
@@ -148,16 +155,6 @@ class Engine:
 
         self._run_path: pathlib.Path | None = None
         """Path to the directory where findings relative to the current run will be stored."""
-
-        self._timestamp_last_message_sent: float | None = None
-        """Timestamp of the last message sent to the source/target system."""
-
-        self._timestamp_last_message_sent_lock: Lock = Lock()
-        """Lock for the `_timestamp_last_message_sent` attribute."""
-
-        self._epoch_seed_generator: Random = Random(
-            hashlib.sha512(self.main_seed).digest())
-        """Random number generator used to generate seeds for each epoch."""
 
         self._epoch_seed: int | None = None
         """Seed value for the current epoch."""
@@ -168,8 +165,8 @@ class Engine:
         self._epoch_mutations: List[Mutation] = []
         """List of mutations to perform during the current epoch."""
 
-        for mon in monitors:
-            mon.add_target(self.target)
+        self._test_case_stop_reason: str | None = None
+        """Reason why the current test case stopped."""
 
     @property
     def runtime(self) -> float:
@@ -189,7 +186,7 @@ class Engine:
     def exec_speed(self) -> float:
         """Calculate the execution speed of the fuzzing engine.
 
-        The execution speed is calculated by dividing the number of cases 
+        The execution speed is calculated by dividing the number of cases
         actually fuzzed by the total runtime of the fuzzing engine.
 
         Returns:
@@ -198,12 +195,32 @@ class Engine:
 
         return self._num_cases_actually_fuzzed / self.runtime
 
-    def _restart_target(self):
+    def _target_alive(self) -> bool:
+        """Check if the target system is alive.
+
+        Returns:
+            bool: `True` if the target system is alive, `False` otherwise.
+        """
+
+        is_alive = True
+        for monitor in self.monitors:
+            if not monitor.is_target_alive():
+                self._logger.error("Target is not alive")
+                is_alive = False
+                break
+
+        return is_alive
+
+    def _restart_target(self) -> bool:
         """Restart the target system and check its liveness.
 
-        This function attempts to restart the target system using the available monitors. After 
-        restarting, it waits for a specified amount of time to allow the system to settle and 
+        This function attempts to restart the target system using the available monitors. After
+        restarting, it waits for a specified amount of time to allow the system to settle and
         finally it checks the liveness of the target system using the monitors.
+
+        Returns:
+            bool: `True` if the target system was successfully restarted and is alive, `False` 
+                otherwise.
         """
 
         self._logger.info("Restarting target")
@@ -216,30 +233,21 @@ class Engine:
                 restarted = True
                 break
 
+        is_alive = False
         if restarted:
-            is_alive = True
-            for monitor in self.monitors:
-                if not monitor.is_target_alive():
-                    self._logger.error(
-                        "Target is not alive after restart... stopping fuzzing")
-                    is_alive = False
-                    self._epoch_stop_reason = "Target is not alive after restart"
-                    break
-            if is_alive:
-                self._logger.info("Target alive")
+            is_alive = self._target_alive()
         else:
-            self._logger.error(
-                "No monitor could restart the target... stopping fuzzing")
-            self._epoch_stop_reason = "No monitor could restart the target"
+            self._logger.error("No monitor could restart the target")
 
-        self._epoch_stop = not (restarted and is_alive)
+        return restarted and is_alive
 
     def run(self) -> int:
         """Start to fuzz all the protocols specified.
 
         Returns:
-            int: `0` if the fuzzing process completed successfully, `1` otherwise.
+            int: The number of protocols successfully fuzzed without errors.
         """
+
         # create the findings directory for the current run
         self._run_id = datetime.datetime.now(datetime.timezone.utc).replace(
             microsecond=0).isoformat().replace(":", "-")
@@ -251,7 +259,7 @@ class Engine:
                 if err.errno != errno.EEXIST:
                     self._logger.error(
                         "Could not create directory %s: %s", self._run_path, err)
-                    return 1
+                    return 0
             else:
                 self._logger.debug(
                     "Created current run findings directory %s", self._run_path)
@@ -260,62 +268,370 @@ class Engine:
         self._num_cases_actually_fuzzed = 0
 
         # fuzz all protocols in the engine
+        protocols_successfully_fuzzed = 0
         for proto in self.protocols:
             self._current_proto = proto
-            self._fuzz_protocol()
+            if self._fuzz_protocol():
+                protocols_successfully_fuzzed += 1
 
         self.end_time = time.time()
-        return 0
+        return protocols_successfully_fuzzed
 
-    def fuzz_epoch(self, path: Path, seed: int):
-        """Fuzz a single epoch from a given path.
-
-        Args:
-            path: Path in the protocol to be fuzzed.
-            seed: Seed value for the current epoch.
-        """
-
-        self._current_epoch += 1
-        self._current_route = path
-        self._epoch_seed = seed
-
-        # first we generate the mutations only
-        self._fuzz_protocol_epoch(generate_only=True)
-
-        # then we apply the mutations
-        self._fuzz_protocol_epoch()
-
-    def fuzz_single_test_case(self, path: Path, seed: int, mutation_type: str, mutator_state: Any):
-        """Fuzz a given test case from a given path.
-
-        Args:
-            path: Path in the protocol to be fuzzed.
-            seed: Seed value for the current test case.
-            mutation_type: Type of mutation to be applied.
-            mutator_state: State of the mutator to be used.
-        """
-
-        self._logger.info("Replaying test case with seed %s", seed)
-
-        # TODO
-
-    def _fuzz_protocol(self):
+    def _fuzz_protocol(self) -> bool:
         """Fuzz all the possible routes for the current protocol.
 
         This function iterates over all the possible paths in the current protocol and fuzzes each 
         path using the `fuzz_epoch` method.
+
+        Returns:
+            bool: `True` if all the paths were successfully fuzzed without errors, `False` 
+                otherwise.
         """
 
         self._current_epoch = 0
         self._logger.info("Fuzzing of protocol %s started",
                           self._current_proto.name)
 
+        res = True
+        epoch_seed_generator = Random(hashlib.sha512(self.main_seed).digest())
         for path in self._current_proto:
-            self.fuzz_epoch(path, self._epoch_seed_generator.randint(
-                0, sys.maxsize * 2 + 1))
+            epoch_seed = epoch_seed_generator.randint(0, sys.maxsize * 2 + 1)
+            res = self.fuzz_epoch(path, epoch_seed)
+            if not res:
+                break
 
         self._logger.info("Fuzzing of protocol %s ended",
                           self._current_proto.name)
+        self._current_epoch = None
+
+    def fuzz_epoch(self, path: Path, seed: int) -> bool:
+        """Fuzz a single epoch on the given path.
+
+        Args:
+            path: Path in the protocol to be fuzzed.
+            seed: Seed value for the current epoch.
+
+        Returns:
+            bool: `True` if the epoch is completed without errors, `False` otherwise.
+        """
+
+        if self._current_epoch is not None:
+            self._current_epoch += 1
+            self._logger.info("Epoch #%s started", self._current_epoch)
+        else:
+            self._logger.info("Starting epoch with seed %s", seed)
+
+        self._epoch_seed = seed
+
+        # first we generate the mutations only
+        try:
+            self._fuzz_single_epoch(path, generate_only=True)
+        except (TestCaseExecutionError, TargetAvailabilityError) as e:
+            self._logger.error(
+                "Error while generating the mutations: %s", str(e))
+            return False
+
+        # then we apply the mutations
+        try:
+            self._fuzz_single_epoch(path)
+        except (TestCaseExecutionError, TargetAvailabilityError) as e:
+            self._logger.error("Error while executing the epoch: %s", str(e))
+            return False
+
+        if self._current_epoch is not None:
+            self._logger.info("Epoch #%s terminated for reason: %s",
+                              self._current_epoch, self._epoch_stop_reason)
+        else:
+            self._logger.info("Epoch terminated for reason: %s",
+                              self._epoch_stop_reason)
+
+        return True
+
+    def _fuzz_single_epoch(self, path: Path, generate_only: bool = False):
+        """Fuzz a single epoch for the current protocol.
+
+        Parameters:
+            path: Path in the protocol to be fuzzed.
+            generate_only: A flag indicating whether mutations should be only generated and not 
+            applied.
+
+        Raises:
+            TargetAvailabilityError: If the target system is not alive and could not be restarted.
+            TestCaseExecutionError: If at least one test case was not completed due to an execution 
+                error.
+        """
+
+        if generate_only:
+            self._logger.info(
+                "Generating mutations for epoch #%s", self._current_epoch)
+
+        self._logger.debug("Current seed: %s", self._epoch_seed)
+        self._epoch_random = Random(hashlib.sha512(self._epoch_seed).digest())
+
+        # if we have only to generate mutations, run a single test case with `generate_only=True`
+        if generate_only:
+            self._fuzz_single_test_case(path, None, True)
+
+            self._logger.info("Generated %s mutations",
+                              len(self._epoch_mutations))
+            return
+
+        self._epoch_stop = False
+        self._epoch_stop_reason = None
+        self._epoch_cases_fuzzed = 0
+
+        # otherwise, run a test case for each mutation
+        for mutation in self._epoch_mutations:
+            self._fuzz_single_test_case(path, mutation)
+            if self._epoch_stop:
+                self._epoch_stop_reason = self._test_case_stop_reason
+                break
+        else:
+            self._epoch_stop_reason = "Exhausted all test cases"
+
+    def _test_case_setup(self, part_of_epoch: bool):
+        """Prepare everything for the execution of a test case.
+
+        Arguments:
+            part_of_epoch: Whether the test case is part of an epoch or not.
+
+        Raises:
+            TargetAvailabilityError: If the target system is not alive and could not be restarted.
+            TestCaseSetupError: If the test setup was not completed.
+        """
+
+        # check that the target system is alive before starting to fuzz
+        target_ok = False
+        attempts = 0
+        while not target_ok:
+            if attempts > self.max_attempts_of_target_restart:
+                self._logger.error(
+                    "Failed to start the target after %s attempts", attempts)
+                break
+
+            target_ok = self._target_alive()
+            if not target_ok:
+                target_ok = self._restart_target()
+
+            attempts += 1
+
+        if not target_ok:
+            raise TargetAvailabilityError()
+
+        self._test_case_stop_reason = None
+
+        for enc in self.encoders:
+            enc.reset()
+
+        for dec in self.decoders:
+            dec.reset()
+
+        self.source.start()
+        if not self.source.started:
+            self._logger.debug("Failed to start the source publisher")
+            raise TestCaseSetupError("failed to start the source publisher")
+
+        self.target.start()
+        if not self.target.started:
+            self._logger.debug("Failed to start the target publisher")
+            raise TestCaseSetupError("failed to start the target publisher")
+
+        if part_of_epoch:
+            self._logger.info("Test case #%s started",
+                              self._epoch_cases_fuzzed+1)
+        else:
+            self._logger.info("Test case started")
+
+    def _test_case_teardown(self, test_completed: bool, part_of_epoch: bool):
+        """Do everything that is necessary to clean up after the execution of a test case.
+
+        Arguments:
+            test_completed: Whether the test case completed successfully.
+            part_of_epoch: Whether the test case is part of an epoch or not.
+        """
+
+        if self.source.started:
+            self.source.stop()
+
+        if self.target.started:
+            self.target.stop()
+
+        if part_of_epoch:
+            if test_completed:
+                self._num_cases_actually_fuzzed += 1
+
+            self._epoch_cases_fuzzed += 1
+            self._logger.info("Test case #%s stopped",
+                              self._epoch_cases_fuzzed)
+        else:
+            self._logger.info("Test case stopped")
+
+    def _fuzz_single_test_case(self, path: Path, mutation: Mutation | None, generate_only: bool = False):
+        """Fuzz a given test case from a given path.
+
+        Args:
+            path: Path in the protocol to be fuzzed.
+            mutation: Mutation to use, or None if no mutation should be used.
+            generate_only: A flag indicating whether mutations should be only generated and not 
+                applied.
+
+        Raises:
+            TargetAvailabilityError: If the target system is not alive and could not be restarted.
+            TestCaseExecutionError: If the test case was not completed due to an execution error.
+        """
+
+        part_of_epoch = self._epoch_cases_fuzzed is not None
+
+        try:
+            self._test_case_setup(part_of_epoch)
+        except TestCaseSetupError as e:
+            self._test_case_teardown(False, part_of_epoch)
+            raise TestCaseExecutionError("test setup failed: " + str(e)) from e
+
+        timestamp_last_message_sent = time.time()
+        test_case_stop = False
+        path = iter(path)
+        msg = None
+        while not test_case_stop:
+            from_target = False
+
+            # receive some data or test if we reached some threshold
+            try:
+                if self.target.data_available():
+                    self._logger.debug(
+                        "Data available from publisher %s", type(self.target))
+                    from_target = True
+                    data = self.source.receive()
+                elif self.source.data_available():
+                    self._logger.debug(
+                        "Data available from publisher %s", type(self.source))
+                    msg = next(path)
+                    data = self.source.receive()
+                else:
+                    delta = time.time() - timestamp_last_message_sent
+                    self._logger.debug(
+                        "Delta time since last sent message: %.4fs", delta)
+                    if delta >= self.wait_time_before_test_end:
+                        self._logger.debug(
+                            "Timeout reached (threshold: %.4fs)", self.wait_time_before_test_end)
+                        test_case_stop = True
+                        self._test_case_stop_reason = "Timeout"
+                    continue
+            except PublisherError as e:
+                self._logger.debug("Error while receiving message: %s", str(e))
+                self._test_case_teardown(False, part_of_epoch)
+                raise TestCaseExecutionError(
+                    "message receiving error: " + str(e)) from e
+
+            to_be_fuzzed = msg == path.path[-1].dst
+            self._logger.debug("Data received %s", data)
+            self._logger.debug("To be fuzzed: %s", to_be_fuzzed)
+
+            # try to apply all the decoding steps, this even if the message is from the target
+            # becuase maybe it contains some info needed to decode future messages
+            original_data = data
+            try:
+                for dec in self.decoders:
+                    self._logger.debug(
+                        "Decoding message with decoder %s", type(dec))
+                    self._logger.debug("Message: %s", data)
+                    data = dec.decode(data, self._current_proto,
+                                      msg, to_be_fuzzed)
+            except Exception as e:
+                self._logger.debug("Error while decoding message: %s", str(e))
+                self._test_case_teardown(False, part_of_epoch)
+                raise TestCaseExecutionError(
+                    "message decoding error: " + str(e)) from e
+
+            self._logger.debug("Decoded data %s", data)
+
+            # if the message was from the target, send it to the source
+            if from_target:
+                try:
+                    self._logger.debug(
+                        "Sending message with publisher %s", type(self.source))
+                    self.source.send(original_data)
+                except PublisherError as e:
+                    self._logger.debug(
+                        "Error while sending message: %s", str(e))
+                    self._test_case_teardown(False, part_of_epoch)
+                    raise TestCaseExecutionError(
+                        "message sending error: " + str(e)) from e
+                else:
+                    timestamp_last_message_sent = time.time()
+                    continue
+
+            # from now on, the message is assumed to be from the source
+
+            # try to parse the message even if it is not the one that has to be fuzzed to ensure
+            # our path is the correct one.
+            try:
+                self._logger.debug("Parsing message with parser %s", type(msg))
+                msg.parse(data)
+            except MessageParsingError as e:
+                self._logger.debug("Error while parsing message: %s", str(e))
+                self._test_case_teardown(False, part_of_epoch)
+                raise TestCaseExecutionError(
+                    "message parsing error: " + str(e)) from e
+
+            # if it is the one that has to be fuzzed, fuzz it
+            if to_be_fuzzed:
+                # if the flag is set, generate mutations and stop the fuzzing process
+                if generate_only:
+                    self._logger.debug("Generating mutations")
+                    self._epoch_mutations = self._generate_mutations(msg)
+                    self._epoch_stop = test_case_stop = True
+                    self._test_case_stop_reason = "Generation completed"
+                    continue
+
+                self._logger.debug("Applying mutation")
+                data = mutation.apply(msg).raw()
+                self._logger.debug("Mutated data %s", data)
+
+            for enc in self.encoders:
+                self._logger.debug(
+                    "Encoding message with encoder %s", type(enc))
+                self._logger.debug("Message: %s", data)
+                data = enc.encode(data, self._current_proto, msg)
+
+            self._logger.debug("Decoded data %s", data)
+
+            try:
+                self._logger.debug(
+                    "Sending message with publisher %s", type(self.target))
+                self.target.send(data)
+            except PublisherError as e:
+                self._logger.debug("Error while sending message: %s", str(e))
+                self._test_case_teardown(False, part_of_epoch)
+                raise TestCaseExecutionError(
+                    "message sending error: " + str(e)) from e
+            else:
+                timestamp_last_message_sent = time.time()
+
+            if not to_be_fuzzed:
+                continue
+
+            # if the message was fuzzed, monitor the target and see if it is still alive
+            for monitor in self.monitors:
+                self._logger.debug(
+                    "Checking target with monitor %s", type(monitor))
+
+                # if the target is not alive, we have a result
+                if not monitor.is_target_alive():
+
+                    # TODO: handle new result (write to file, log, restart target)
+
+                    test_case_stop = True
+                    self._test_case_stop_reason = "Target is not alive"
+
+                    if part_of_epoch and self.stop_on_find:
+                        self._epoch_stop = True
+
+                    self._logger.debug("Target is not alive")
+                    self._logger.debug("Stopping epoch: %s", self._epoch_stop)
+                    break
+
+        self._test_case_teardown(True, part_of_epoch)
 
     def _generate_mutations(self, data: Fuzzable) -> List[Mutation]:
         """Generates a list of mutations for the given data.
@@ -330,8 +646,8 @@ class Engine:
         # instantiate all the mutators with a seed
         mutators = []
         for mutator in data.mutators():
-            m = mutator(seed=self._epoch_random.randint(
-                0, sys.maxsize * 2 + 1))
+            mutator_seed = self._epoch_random.randint(0, sys.maxsize * 2 + 1)
+            m = mutator(seed=mutator_seed)
             mutators.append(m)
 
         # generate the mutations
@@ -353,121 +669,23 @@ class Engine:
 
         return mutations
 
-    def _fuzz_protocol_epoch(self, generate_only: bool = False):
-        """Fuzz a single epoch for the current protocol.
-
-        Parameters:
-            generate_only: A flag indicating whether mutations should be only generated and not applied.
-        """
-        if generate_only:
-            self._logger.info(
-                "Generating mutations for epoch #%s", self._current_epoch)
-        else:
-            self._logger.info("Epoch #%s started", self._current_epoch)
-
-        self._logger.debug("Current seed: %s", self._epoch_seed)
-
-        self._epoch_random = Random(hashlib.sha512(self._epoch_seed).digest())
-        self._epoch_stop = False
-        self._epoch_stop_reason = None
-        self._epoch_cases_fuzzed = 0
-
-        for enc in self.encoders:
-            enc.reset()
-
-        for dec in self.decoders:
-            dec.reset()
-
-        iter(self._current_route)
-        self._current_msg = next(self._current_route)
-
-        self.source.on_message(self._mutate, args=(generate_only,))
-        self.source.start()
-
-        # infinite loop waiting for epoch stop or for the timeout to expire
-        if not generate_only:
-            while not self._epoch_stop:
-                time.sleep(0.5)
-                with self._timestamp_last_message_sent_lock:
-                    delta = time.time() - self._timestamp_last_message_sent
-                    if delta >= self.wait_time_before_epoch_end:
-                        self.source.stop()
-                        self._epoch_stop = True
-                        self._epoch_stop_reason = "Timeout"
-
-        if generate_only:
-            self._logger.debug("Generated %s mutations",
-                               len(self._epoch_mutations))
-        else:
-            self._logger.info("Epoch #%s terminated for reason: %s",
-                              self._current_epoch, self._epoch_stop_reason)
-
-    def _mutate(self, data: bytes, generate_only: bool):
-        """Callback function called on each new message received.
-
-        This function mutates the input message based on the current protocol, message, and fuzzing status.
+    def fuzz_test_case(self, path: Path, mutation_type: str, mutator_state: Any, mutated_field_qualified_name: str):
+        """Fuzz a given test case from a given path.
 
         Args:
-            data: The input data that makes up the new message.
-            generate_only: A flag indicating whether mutations should be only generated and not 
-                applied.
+            path: Path in the protocol to be fuzzed.
+            mutation_type: Type of mutation to be applied.
+            mutator_state: State of the mutator to be used.
+            mutated_field_qualified_name: The qualified name of the field in the `Fuzzable` object 
+                that was mutated.
         """
 
-        with self._timestamp_last_message_sent_lock:
-            # update the timestamp so that the engine doesn't try to stop `source` while processing
-            # this message
-            self._timestamp_last_message_sent = time.time()
+        # pylint: disable=import-outside-toplevel
+        from pydoc import locate
+        mutation = Mutation(locate(mutation_type),
+                            mutator_state,
+                            mutated_field_qualified_name)
+        self._fuzz_single_test_case(path, mutation)
 
-        to_be_fuzzed = self._current_msg == self._current_route.path[-1].dst
-        if to_be_fuzzed:
-            self._logger.info("Test case #%s started",
-                              self._epoch_cases_fuzzed + 1)
 
-        # apply all the decoders to the received data
-        for dec in self.decoders:
-            data = dec.decode(data, self._current_proto,
-                              self._current_msg, to_be_fuzzed)
-
-        if to_be_fuzzed:
-
-            # TODO: parse_fuzzable is not part of the Protocol class
-            fuzzable_data = self._current_proto.parse_fuzzable(data)
-
-            # if the flag is set, generate mutations and stop the fuzzing process
-            if generate_only:
-                self._epoch_mutations = self._generate_mutations(fuzzable_data)
-                self._epoch_stop = True
-                return
-
-            # otherwise, apply one of the previously generated mutations to the data
-            self._epoch_mutations.pop().apply(fuzzable_data)
-            data = fuzzable_data
-        else:
-            self._current_msg = next(self._current_route)
-
-        # apply all the encoders to the (maybe fuzzed) data
-        for enc in self.encoders:
-            data = enc.encode(data, self._current_proto, self._current_msg)
-
-        self.target.send(data)
-        with self._timestamp_last_message_sent_lock:
-            self._timestamp_last_message_sent = time.time()
-
-        if to_be_fuzzed:
-            self._num_cases_actually_fuzzed += 1
-            self._epoch_cases_fuzzed += 1
-            self._logger.info("Test case #%s stopped",
-                              self._epoch_cases_fuzzed)
-
-            # check if the target is still alive
-            for monitor in self.monitors:
-                if not monitor.is_target_alive():
-
-                    # TODO: handle new result (write to file, log, restart target)
-
-                    if self.stop_on_find:
-                        self._epoch_stop = True
-
-            if not self._epoch_stop and len(self._epoch_mutations) == 0:
-                self._epoch_stop = True
-                self._epoch_stop_reason = "Exhausted all test cases"
+__all__ = ['Engine']

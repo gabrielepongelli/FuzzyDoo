@@ -7,7 +7,7 @@ from queue import SimpleQueue
 
 import sctp
 
-from ..publisher import NetworkPublisher
+from ..publisher import NetworkPublisher, PublisherError
 
 
 RECV_BUFF_LEN = 4096
@@ -53,16 +53,29 @@ class ProxyEndpoint(NetworkPublisher):
     def stop(self):
         self._proxy.stop()
 
+    @property
+    def started(self) -> bool:
+        return self._proxy.is_running
+
     def send(self, data: bytes):
+        if not self._proxy.is_running:
+            raise PublisherError("the proxy is not running")
+
         self.output_queue.put(data)
 
     def receive(self) -> bytes | None:
+        if not self._proxy.is_running:
+            raise PublisherError("the proxy is not running")
+
         if self.input_queue.empty():
             return None
 
         return self.input_queue.get()
 
     def data_available(self) -> bool:
+        if not self._proxy.is_running:
+            raise PublisherError("the proxy is not running")
+
         return not self.input_queue.empty()
 
     def fileno(self) -> int:
@@ -136,6 +149,16 @@ class SctpProxy:
         # thread running the proxy
         self._thread: threading.Thread = threading.Thread(
             target=self._start_callback)
+
+    @property
+    def is_running(self) -> bool:
+        """Returns whether the SCTP proxy is currently running.
+
+        Returns:
+            bool: True if the proxy is running, False otherwise.
+        """
+
+        return not self._stop_flag.is_set()
 
     def get_source(self) -> NetworkPublisher:
         """Returns the source endpoint of the SCTP proxy.

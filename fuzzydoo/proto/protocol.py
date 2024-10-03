@@ -1,6 +1,7 @@
 from typing import List
 
-from .utils import Graph, Node, Edge, Path
+from .message import Message
+from ..utils import Graph, Node, Edge, Path
 
 
 class Protocol(Graph):
@@ -10,6 +11,9 @@ class Protocol(Graph):
     messages and edges represent dependencies between messages. In particular, if there is an edge 
     from a message A to message B, it means that message B can be sent only after message A has 
     been sent.
+
+    All the `Message` instances contained in this class are messages that should be sent to the 
+    target (maybe after being fuzzed).
 
     Attributes:
         name: The name of the protocol.
@@ -46,7 +50,7 @@ class Protocol(Graph):
 
         return self
 
-    def connect(self, src: Node, dst: Node | None = None) -> Edge:
+    def connect(self, src: Message, dst: Message | None = None) -> Edge:
         """Create a connection between the two messages of the protocol.
 
         Creates a connection between the source message and the destination message. The `Protocol` 
@@ -107,18 +111,19 @@ class Protocol(Graph):
 
         yield self._iterate_paths_rec(self.root, [])
 
-    def _iterate_paths_rec(self, node: Node, path: List[Edge]):
+    def _iterate_paths_rec(self, msg: Message, path: List[Edge]):
         """Recursive helper for `__next__`.
 
         Args:
-            node: Current node that is being visited.
-            route: List of edges along the path to the current node being visited.
+            msg: Current message that is being visited.
+            path: List of edges along the path to the current message being visited.
 
         Yields:
-            Path: List of edges along the path to the current node being visited.
+            Path: List of edges along the path to the current message being visited.
         """
-        # step through every edge from the current node
-        for edge in self.edges_from(node.id):
+
+        # step through every edge from the current message
+        for edge in self.edges_from(msg.id):
             # keep track of the path as we fuzz through it, don't count the root node
             # we keep track of edges as opposed to nodes because if there is
             # more than one path through a set of given nodes we don't want any ambiguity
@@ -127,10 +132,10 @@ class Protocol(Graph):
             current_msg = self.nodes[edge.dst]
             yield Path(path)
 
-            # recursively fuzz the remainder of the nodes in the session graph.
+            # recursively fuzz the remainder of the messages in the protocol graph.
             for x in self._iterate_paths_rec(current_msg, path):
                 yield x
 
-        # finished with the last node on the path, pop it off the path stack.
+        # finished with the last message on the path, pop it off the path stack.
         if path:
             path.pop()

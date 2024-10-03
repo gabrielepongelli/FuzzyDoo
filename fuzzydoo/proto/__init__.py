@@ -1,3 +1,4 @@
-from .message import Message, Response
+from .message import Message, MessageParsingError
+from .protocol import Protocol
 
-__all__ = ['Message', 'Response']
+__all__ = ['Message', 'MessageParsingError', 'Protocol']
