@@ -65,7 +65,7 @@ class Engine:
 
     def __init__(self,
                  main_seed: int,
-                 protocols: List[Protocol],
+                 protocol: Protocol,
                  source: Publisher,
                  target: NetworkPublisher,
                  monitors: List[Monitor],
@@ -84,7 +84,7 @@ class Engine:
 
         Parameters:
             main_seed: Seed value for randomization.
-            protocols: List of protocols to be fuzzed.
+            protocol: Protocol to be fuzzed.
             source: Source of messages that will be fuzzed.
             target: Target system to which the mutated messages will be forwarded.
             monitors: List of monitors to check the target system's status.
@@ -103,7 +103,7 @@ class Engine:
         """
 
         self.main_seed: int = main_seed
-        self.protocols: List[Protocol] = protocols
+        self.protocol: Protocol = protocol
         self.source: Publisher = source
         self.target: NetworkPublisher = target
         self.encoders: List[Encoder] = encoders
@@ -143,9 +143,6 @@ class Engine:
 
         self._epoch_stop_reason: str | None = None
         """Reason why the current epoch stopped."""
-
-        self._current_proto: Protocol | None = None
-        """Current protocol being fuzzed."""
 
         self._num_cases_actually_fuzzed: int = 0
         """Number of test cases actually fuzzed during the current run."""
@@ -241,11 +238,11 @@ class Engine:
 
         return restarted and is_alive
 
-    def run(self) -> int:
-        """Start to fuzz all the protocols specified.
+    def run(self) -> bool:
+        """Start to fuzz the protocol specified.
 
         Returns:
-            int: The number of protocols successfully fuzzed without errors.
+            bool: `True` if the protocol is successfully fuzzed, `False` otherwise.
         """
 
         # create the findings directory for the current run
@@ -267,15 +264,10 @@ class Engine:
         self.start_time = time.time()
         self._num_cases_actually_fuzzed = 0
 
-        # fuzz all protocols in the engine
-        protocols_successfully_fuzzed = 0
-        for proto in self.protocols:
-            self._current_proto = proto
-            if self._fuzz_protocol():
-                protocols_successfully_fuzzed += 1
+        result = self._fuzz_protocol()
 
         self.end_time = time.time()
-        return protocols_successfully_fuzzed
+        return result
 
     def _fuzz_protocol(self) -> bool:
         """Fuzz all the possible routes for the current protocol.
@@ -289,20 +281,20 @@ class Engine:
         """
 
         self._current_epoch = 0
-        self._logger.info("Fuzzing of protocol %s started",
-                          self._current_proto.name)
+        self._logger.info("Fuzzing of protocol %s started", self.protocol.name)
 
         res = True
         epoch_seed_generator = Random(hashlib.sha512(self.main_seed).digest())
-        for path in self._current_proto:
+        for path in self.protocol:
             epoch_seed = epoch_seed_generator.randint(0, sys.maxsize * 2 + 1)
             res = self.fuzz_epoch(path, epoch_seed)
             if not res:
                 break
 
-        self._logger.info("Fuzzing of protocol %s ended",
-                          self._current_proto.name)
+        self._logger.info("Fuzzing of protocol %s ended", self.protocol.name)
         self._current_epoch = None
+
+        return res
 
     def fuzz_epoch(self, path: Path, seed: int) -> bool:
         """Fuzz a single epoch on the given path.
@@ -535,7 +527,7 @@ class Engine:
                     self._logger.debug(
                         "Decoding message with decoder %s", type(dec))
                     self._logger.debug("Message: %s", data)
-                    data = dec.decode(data, self._current_proto,
+                    data = dec.decode(data, self.protocol,
                                       msg, to_be_fuzzed)
             except Exception as e:
                 self._logger.debug("Error while decoding message: %s", str(e))
@@ -592,7 +584,7 @@ class Engine:
                 self._logger.debug(
                     "Encoding message with encoder %s", type(enc))
                 self._logger.debug("Message: %s", data)
-                data = enc.encode(data, self._current_proto, msg)
+                data = enc.encode(data, self.protocol, msg)
 
             self._logger.debug("Decoded data %s", data)
 
