@@ -106,6 +106,24 @@ pygments = ">=2.12.0"
 dev = ["hypothesis", "mypy", "pdoc-pyo3-sample-library (==1.0.11)", "pygments (>=2.14.0)", "pytest", "pytest-cov", "pytest-timeout", "ruff", "tox", "types-pygments"]
 
 [[package]]
+name = "pycrate"
+version = "0.7.7"
+description = "A software suite to handle various data and protocol formats"
+optional = false
+python-versions = "*"
+files = [
+    {file = "pycrate-0.7.7-py2.py3-none-any.whl", hash = "sha256:b5651068817e297b3f0513d85c517a2f773dfb05d1ac289287ae23d84196e7bc"},
+    {file = "pycrate-0.7.7.tar.gz", hash = "sha256:72f86a9a50497342fb2a940b1398a46e0aa2401a90cf77405074f2264b0e3734"},
+]
+
+[package.extras]
+corenet = ["CryptoMobile", "pysctp"]
+diameter-dict = ["lxml"]
+nas5g = ["CryptoMobile"]
+naslte = ["CryptoMobile"]
+sedebugmux = ["crcmod"]
+
+[[package]]
 name = "pygments"
 version = "2.18.0"
 description = "Pygments is a syntax highlighting package written in Python."
@@ -144,4 +162,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "e47984eaceed9cf535913640ab14aa874df28da9ae041e2bacdb838f25d581ff"
+content-hash = "21db9a7d5e5235b7ba29b77ae4580d9199185e68d0bb5397fd14a3af662a08f0"

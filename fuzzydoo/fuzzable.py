@@ -1,7 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import List, Any, Type
+from typing import List, Any, Type, Tuple
 
 from .mutator import Mutator
+from .utils import FuzzyDooError
+
+
+class PathFormatError(FuzzyDooError):
+    """Exception raised when an invalid path is found."""
+
+
+class ContentNotFoundError(FuzzyDooError):
+    """Exception raised when some content specified is not found."""
 
 
 class Fuzzable(ABC):
@@ -9,16 +18,7 @@ class Fuzzable(ABC):
 
     The Fuzzable class provides a base structure for defining fuzzable entities, i.e. parts of a 
     message that can be altered during the fuzzing process.
-
-    Attributes:
-        is_modified: Indicates whether the current fuzzable entity has been modified or not. 
-            Defaults to `False`.
     """
-
-    def __init__(self):
-        """Initialize a Fuzzable entity."""
-
-        self.is_modified: bool = False
 
     @property
     @abstractmethod
@@ -30,25 +30,6 @@ class Fuzzable(ABC):
         """
 
     @property
-    @abstractmethod
-    def size(self) -> int:
-        """Get the size of the current fuzzable entity in bytes.
-
-        Returns:
-            int: The size of the current fuzzable entity in bytes.
-        """
-
-    @property
-    @abstractmethod
-    def bit_length(self) -> int:
-        """Get the bit length of the current fuzzable entity.
-
-        Returns:
-            int: The bit length of the current fuzzable entity.
-        """
-
-    @property
-    @abstractmethod
     def fuzzable(self) -> bool:
         """Check if the current fuzzable entity is fuzzable.
 
@@ -60,7 +41,7 @@ class Fuzzable(ABC):
 
     @property
     @abstractmethod
-    def parent(self) -> "Fuzzable" | None:
+    def parent(self):
         """Get the parent fuzzable entity."""
 
     @property
@@ -78,7 +59,7 @@ class Fuzzable(ABC):
         return self.name if self.parent is None else f"{self.parent.qualified_name}.{self.name}"
 
     @abstractmethod
-    def mutators(self) -> List[Type["Mutator"]]:
+    def mutators(self) -> List[Tuple[Type[Mutator], str]]:
         """Get all the mutators associated with this fuzzable entity.
 
         This method is intended to be overridden in subclasses to provide a list of mutator classes 
@@ -86,10 +67,11 @@ class Fuzzable(ABC):
         be a subclass of `Mutator`.
 
         Returns:
-            List[Type[Mutator]]: A list of mutator classes associated with this fuzzable entity.
+            List[Tuple[Type[Mutator], str]]: A list of mutator classes associated with this 
+                fuzzable entity along with the qualified name of the targeted fuzzable entity.
         """
 
-    def get_content_by_path(self, path: str) -> "Fuzzable":
+    def get_content_by_path(self, path: str):
         """Get the value of the fuzzable entity at the specified `path`.
 
         Args:
@@ -101,19 +83,20 @@ class Fuzzable(ABC):
             Fuzzable: The fuzzable entity at the specified `path`.
 
         Raises:
-            AttributeError: If the root entity in the path does not match the current entity's name 
-                or if the path does not lead to an existing attribute.
+            PathFormatError: If the root entity in the path does not match the current entity's 
+                name. 
+            ContentNotFoundError: If the path does not lead to an existing fuzzable attribute.
         """
 
         parts = path.split(".")
 
         if parts[0] != self.name:
-            raise AttributeError(
+            raise PathFormatError(
                 f"Root entity '{self.name}' does not match path '{path}'")
 
         if len(parts) > 1:
             if not (hasattr(self, parts[1]) and isinstance(getattr(self, parts[1]), Fuzzable)):
-                raise AttributeError(
+                raise ContentNotFoundError(
                     f"Attribute '{parts[1]}' does not exist or is not a fuzzable entity")
             return getattr(self, parts[1]).get_content_by_path(".".join(parts[1:]))
         else:
@@ -130,20 +113,23 @@ class Fuzzable(ABC):
                 fuzzable entity's data type.
 
         Raises:
-            AttributeError: If the root entity in the path does not match the current entity's name.
+            PathFormatError: If the root entity in the path does not match the current entity's     
+                name.
+            ContentNotFoundError: If the path does not lead to an existing fuzzable attribute.
         """
 
         parts = path.split(".")
 
         if parts[0] != self.name:
-            raise AttributeError(
+            raise PathFormatError(
                 f"Root entity '{self.name}' does not match path '{path}'")
 
-        if len(parts) > 1:
+        if len(parts) > 2:
             if hasattr(self, parts[1]) and isinstance(getattr(self, parts[1]), Fuzzable):
                 getattr(self, parts[1]).set_content_by_path(
                     ".".join(parts[1:]), value)
+            else:
+                raise ContentNotFoundError(
+                    f"Attribute '{parts[1]}' does not exist or is not a fuzzable entity")
         else:
-            setattr(self, parts[0], value)
-
-        self.is_modified = True
+            setattr(self, parts[1], value)

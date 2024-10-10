@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from random import Random
 from typing import Any
 
-from .fuzzable import Fuzzable
+from .utils import FuzzyDooError
 
 
-class MutatorCompleted(Exception):
+class MutatorCompleted(FuzzyDooError):
     """Exception raised when a mutator has generated all of its possible mutations."""
 
 
@@ -34,7 +34,7 @@ class Mutation:
     """
 
     def __init__(self, mutator: type, mutator_state: Any, field_qualified_name: str,
-                 mutated_value: Fuzzable | None = None):
+                 mutated_value=None):
         """Initialize a `Mutation` object.
 
         Arguments:
@@ -48,7 +48,7 @@ class Mutation:
         self.mutator: type = mutator
         self.mutator_state: Any = mutator_state
         self.field_qualified_name: str = field_qualified_name
-        self.mutated_value: Fuzzable | None = mutated_value
+        self.mutated_value = mutated_value
 
     def __eq__(self, value: object) -> bool:
         return isinstance(value, Mutation) \
@@ -57,7 +57,7 @@ class Mutation:
             and self.field_qualified_name == value.field_qualified_name \
             and self.mutated_value == value.mutated_value
 
-    def apply(self, data: Fuzzable) -> Fuzzable:
+    def apply(self, data):
         """Apply this mutation to the specified `data`.
 
         Args:
@@ -101,7 +101,7 @@ class Mutator(ABC):
         """
 
     @abstractmethod
-    def mutate(self, data: Fuzzable, rand: Random | None = None, state: Any | None = None) -> Mutation:
+    def mutate(self, data, rand: Random | None = None, state: Any | None = None) -> Mutation:
         """Perform a random mutation on the specified Fuzzable data.
 
         Args:
