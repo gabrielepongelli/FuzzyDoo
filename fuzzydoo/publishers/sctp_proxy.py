@@ -7,7 +7,7 @@ from queue import SimpleQueue
 
 import sctp
 
-from ..publisher import NetworkPublisher, PublisherError
+from ..publisher import NetworkPublisher, PublisherOperationError
 
 
 RECV_BUFF_LEN = 4096
@@ -59,13 +59,13 @@ class ProxyEndpoint(NetworkPublisher):
 
     def send(self, data: bytes):
         if not self._proxy.is_running:
-            raise PublisherError("the proxy is not running")
+            raise PublisherOperationError("the proxy is not running")
 
         self.output_queue.put(data)
 
     def receive(self) -> bytes | None:
         if not self._proxy.is_running:
-            raise PublisherError("the proxy is not running")
+            raise PublisherOperationError("the proxy is not running")
 
         if self.input_queue.empty():
             return None
@@ -74,7 +74,7 @@ class ProxyEndpoint(NetworkPublisher):
 
     def data_available(self) -> bool:
         if not self._proxy.is_running:
-            raise PublisherError("the proxy is not running")
+            raise PublisherOperationError("the proxy is not running")
 
         return not self.input_queue.empty()
 

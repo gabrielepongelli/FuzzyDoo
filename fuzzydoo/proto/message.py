@@ -6,7 +6,11 @@ from ..utils.graph import Node
 from ..utils.errs import FuzzyDooError
 
 
-class MessageParsingError(FuzzyDooError):
+class MessageError(FuzzyDooError):
+    """Generic error for the `Message` interface."""
+
+
+class MessageParsingError(MessageError):
     """Exception raised when an error occurs while parsing a message."""
 
 

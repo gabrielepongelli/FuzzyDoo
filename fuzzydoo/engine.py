@@ -10,7 +10,7 @@ from random import Random
 from typing import Any, List
 
 from .proto import Protocol, MessageParsingError
-from .publisher import Publisher, NetworkPublisher, PublisherError
+from .publisher import Publisher, NetworkPublisher, PublisherOperationError
 from .monitor import Monitor
 from .encoder import Encoder
 from .decoder import Decoder
@@ -20,15 +20,19 @@ from .utils.graph import Path
 from .utils.errs import FuzzyDooError
 
 
-class TestCaseExecutionError(FuzzyDooError):
+class FuzzingEngineError(FuzzyDooError):
+    """Generic error for the `Engine` class."""
+
+
+class TestCaseExecutionError(FuzzingEngineError):
     """Exception raised when an error occurs during test case execution."""
 
 
-class TestCaseSetupError(FuzzyDooError):
+class TestCaseSetupError(FuzzingEngineError):
     """Exception raised when an error occurs during test case setup."""
 
 
-class TargetAvailabilityError(FuzzyDooError):
+class TargetAvailabilityError(FuzzingEngineError):
     """Exception raised when the target system is not alive and cannot be restarted."""
 
 
@@ -510,7 +514,7 @@ class Engine:
                         test_case_stop = True
                         self._test_case_stop_reason = "Timeout"
                     continue
-            except PublisherError as e:
+            except PublisherOperationError as e:
                 self._logger.debug("Error while receiving message: %s", str(e))
                 self._test_case_teardown(False, part_of_epoch)
                 raise TestCaseExecutionError(
@@ -544,7 +548,7 @@ class Engine:
                     self._logger.debug(
                         "Sending message with publisher %s", type(self.source))
                     self.source.send(original_data)
-                except PublisherError as e:
+                except PublisherOperationError as e:
                     self._logger.debug(
                         "Error while sending message: %s", str(e))
                     self._test_case_teardown(False, part_of_epoch)
@@ -593,7 +597,7 @@ class Engine:
                 self._logger.debug(
                     "Sending message with publisher %s", type(self.target))
                 self.target.send(data)
-            except PublisherError as e:
+            except PublisherOperationError as e:
                 self._logger.debug("Error while sending message: %s", str(e))
                 self._test_case_teardown(False, part_of_epoch)
                 raise TestCaseExecutionError(

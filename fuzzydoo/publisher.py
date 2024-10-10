@@ -5,6 +5,10 @@ from .utils.errs import FuzzyDooError
 
 
 class PublisherError(FuzzyDooError):
+    """Generic error for the `Publisher` interface."""
+
+
+class PublisherOperationError(PublisherError):
     """Exception raised when a publisher encounters an error during send/receive operations."""
 
 
@@ -52,7 +56,7 @@ class Publisher(ABC):
             data: The data to be sent.
 
         Raises:
-            PublisherError: If an error occurs while sending data.
+            PublisherOperationError: If an error occurs while sending data.
         """
 
     @abstractmethod
@@ -63,7 +67,7 @@ class Publisher(ABC):
             bytes: The received data, or `None` if no data is available.
 
         Raises:
-            PublisherError: If an error occurs while receiving data.
+            PublisherOperationError: If an error occurs while receiving data.
         """
 
     @abstractmethod
@@ -74,7 +78,7 @@ class Publisher(ABC):
             bool: `True` if there is data available, `False` otherwise.
 
         Raises:
-            PublisherError: If an error occurs while checking data availability.
+            PublisherOperationError: If an error occurs while checking data availability.
         """
 
 
@@ -101,4 +105,5 @@ class NetworkPublisher(Publisher):
         self.port = port
 
 
-__all__ = ['Publisher', 'PublisherError', 'NetworkPublisher']
+__all__ = ['Publisher', 'PublisherError',
+           'PublisherOperationError', 'NetworkPublisher']
