@@ -1,7 +1,7 @@
 from typing import List
 
 from .message import Message
-from ..utils import Graph, Node, Edge, Path
+from ..utils.graph import Graph, Node, Edge, Path
 
 
 class Protocol(Graph):

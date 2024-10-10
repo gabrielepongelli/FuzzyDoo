@@ -16,18 +16,19 @@ from .encoder import Encoder
 from .decoder import Decoder
 from .fuzzable import Fuzzable
 from .mutator import Mutation, MutatorCompleted
-from .utils import Path
+from .utils.graph import Path
+from .utils.errs import FuzzyDooError
 
 
-class TestCaseExecutionError(Exception):
+class TestCaseExecutionError(FuzzyDooError):
     """Exception raised when an error occurs during test case execution."""
 
 
-class TestCaseSetupError(Exception):
+class TestCaseSetupError(FuzzyDooError):
     """Exception raised when an error occurs during test case setup."""
 
 
-class TargetAvailabilityError(Exception):
+class TargetAvailabilityError(FuzzyDooError):
     """Exception raised when the target system is not alive and cannot be restarted."""
 
 
@@ -216,7 +217,7 @@ class Engine:
         finally it checks the liveness of the target system using the monitors.
 
         Returns:
-            bool: `True` if the target system was successfully restarted and is alive, `False` 
+            bool: `True` if the target system was successfully restarted and is alive, `False`
                 otherwise.
         """
 
@@ -272,11 +273,11 @@ class Engine:
     def _fuzz_protocol(self) -> bool:
         """Fuzz all the possible routes for the current protocol.
 
-        This function iterates over all the possible paths in the current protocol and fuzzes each 
+        This function iterates over all the possible paths in the current protocol and fuzzes each
         path using the `fuzz_epoch` method.
 
         Returns:
-            bool: `True` if all the paths were successfully fuzzed without errors, `False` 
+            bool: `True` if all the paths were successfully fuzzed without errors, `False`
                 otherwise.
         """
 
@@ -344,12 +345,12 @@ class Engine:
 
         Parameters:
             path: Path in the protocol to be fuzzed.
-            generate_only: A flag indicating whether mutations should be only generated and not 
+            generate_only: A flag indicating whether mutations should be only generated and not
             applied.
 
         Raises:
             TargetAvailabilityError: If the target system is not alive and could not be restarted.
-            TestCaseExecutionError: If at least one test case was not completed due to an execution 
+            TestCaseExecutionError: If at least one test case was not completed due to an execution
                 error.
         """
 
@@ -464,7 +465,7 @@ class Engine:
         Args:
             path: Path in the protocol to be fuzzed.
             mutation: Mutation to use, or None if no mutation should be used.
-            generate_only: A flag indicating whether mutations should be only generated and not 
+            generate_only: A flag indicating whether mutations should be only generated and not
                 applied.
 
         Raises:
@@ -668,7 +669,7 @@ class Engine:
             path: Path in the protocol to be fuzzed.
             mutation_type: Type of mutation to be applied.
             mutator_state: State of the mutator to be used.
-            mutated_field_qualified_name: The qualified name of the field in the `Fuzzable` object 
+            mutated_field_qualified_name: The qualified name of the field in the `Fuzzable` object
                 that was mutated.
         """
 

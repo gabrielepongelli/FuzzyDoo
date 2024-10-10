@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from .utils.errs import FuzzyDooError
 
-class PublisherError(Exception):
+
+class PublisherError(FuzzyDooError):
     """Exception raised when a publisher encounters an error during send/receive operations."""
 
 

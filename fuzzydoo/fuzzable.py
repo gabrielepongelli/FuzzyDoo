@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import List, Any, Type, Tuple
 
 from .mutator import Mutator
-from .utils import FuzzyDooError
+from .utils.errs import FuzzyDooError
 
 
 class PathFormatError(FuzzyDooError):

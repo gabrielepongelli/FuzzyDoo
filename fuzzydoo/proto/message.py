@@ -1,8 +1,9 @@
 from abc import abstractmethod
 from typing import Any
 
-from ..utils import Node, FuzzyDooError
 from ..fuzzable import Fuzzable
+from ..utils.graph import Node
+from ..utils.errs import FuzzyDooError
 
 
 class MessageParsingError(FuzzyDooError):

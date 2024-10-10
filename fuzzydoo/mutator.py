@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from random import Random
 from typing import Any
 
-from .utils import FuzzyDooError
+from .utils.errs import FuzzyDooError
 
 
 class MutatorCompleted(FuzzyDooError):
