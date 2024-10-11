@@ -33,28 +33,26 @@ class Mutation:
             new value is not currently available.
     """
 
-    def __init__(self, mutator: type, mutator_state: Any, field_qualified_name: str,
-                 mutated_value=None):
+    def __init__(self, mutator: type, mutator_state: Any, field_name: str, mutated_value=None):
         """Initialize a `Mutation` object.
 
         Arguments:
             mutator: The type of the mutator that generated this mutation.
             mutator_state: The state of the mutator at the time of mutation.
-            field_qualified_name: The qualified name of the field in the `Fuzzable` object that was 
-                mutated.
+            field_name: The  name of the field in the `Fuzzable` object that was mutated.
             mutated_value (optional): The new value of the mutated field. Defaults to `None`.
         """
 
         self.mutator: type = mutator
         self.mutator_state: Any = mutator_state
-        self.field_qualified_name: str = field_qualified_name
+        self.field_name: str = field_name
         self.mutated_value = mutated_value
 
     def __eq__(self, value: object) -> bool:
         return isinstance(value, Mutation) \
             and self.mutator == value.mutator \
             and self.mutator_state == value.mutator_state \
-            and self.field_qualified_name == value.field_qualified_name \
+            and self.field_name == value.field_name \
             and self.mutated_value == value.mutated_value
 
     def apply(self, data):
@@ -69,9 +67,10 @@ class Mutation:
 
         mutator = self.mutator()
         mutated_val = mutator.mutate(
-            data.get_content_by_path(self.field_qualified_name),
-            state=self.mutator_state).mutated_value
-        data.set_content_by_path(self.field_qualified_name, mutated_val)
+            data, state=self.mutator_state).mutated_value
+
+        path = data.name if self.field_name == "" else data.name + '.' + self.field_name
+        data.set_content_by_path(path, mutated_val)
         return data
 
 
@@ -92,7 +91,8 @@ class Mutator(ABC):
 
         self._name: str = self.__class__.__name__
         self._seed: int = seed
-        self._rand: Random = Random(hashlib.sha512(self._seed).digest())
+        self._rand: Random = Random(
+            hashlib.sha512(self._seed.to_bytes()).digest())
 
     @property
     def name(self) -> str:
@@ -115,13 +115,11 @@ class Mutator(ABC):
         """
 
     @abstractmethod
-    def mutate(self, data, rand: Random | None = None, state: Any | None = None) -> Mutation:
+    def mutate(self, data, state: Any | None = None) -> Mutation:
         """Perform a random mutation on the specified Fuzzable data.
 
         Args:
             data: The `Fuzzable` data on which the mutation should be performed.
-            rand (optional): A random number generator to be used for this mutation. Defaults to 
-                `None`.
             state (optional): The state of this mutator to use for this mutation. Defaults to 
                 `None`.
 
@@ -155,7 +153,6 @@ def mutable(cls: Type):
         old_mutators = cls.mutators
 
     def new_mutators(self):
-        print(key)
         res = MUTATORS.get(key, [])
         return old_mutators(self) + [(m, self.qualified_name) for m in res]
 

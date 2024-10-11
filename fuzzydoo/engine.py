@@ -7,14 +7,13 @@ import hashlib
 import sys
 import pathlib
 from random import Random
-from typing import Any, List
+from typing import Any, List, Tuple
 
-from .proto import Protocol, MessageParsingError
+from .proto import Protocol, Message, MessageParsingError
 from .publisher import Publisher, NetworkPublisher, PublisherOperationError
 from .monitor import Monitor
 from .encoder import Encoder
 from .decoder import Decoder
-from .fuzzable import Fuzzable
 from .mutator import Mutation, MutatorCompleted
 from .utils.graph import Path
 from .utils.errs import FuzzyDooError
@@ -164,8 +163,8 @@ class Engine:
         self._epoch_random: Random | None = None
         """Random number generator used inside the current epoch."""
 
-        self._epoch_mutations: List[Mutation] = []
-        """List of mutations to perform during the current epoch."""
+        self._epoch_mutations: List[Tuple[Mutation, str]] = []
+        """List of mutations to perform during the current epoch and the associated fuzzable path."""
 
         self._test_case_stop_reason: str | None = None
         """Reason why the current test case stopped."""
@@ -289,7 +288,8 @@ class Engine:
         self._logger.info("Fuzzing of protocol %s started", self.protocol.name)
 
         res = True
-        epoch_seed_generator = Random(hashlib.sha512(self.main_seed).digest())
+        epoch_seed_generator = Random(
+            hashlib.sha512(self.main_seed.to_bytes()).digest())
         for path in self.protocol:
             epoch_seed = epoch_seed_generator.randint(0, sys.maxsize * 2 + 1)
             res = self.fuzz_epoch(path, epoch_seed)
@@ -363,7 +363,8 @@ class Engine:
                 "Generating mutations for epoch #%s", self._current_epoch)
 
         self._logger.debug("Current seed: %s", self._epoch_seed)
-        self._epoch_random = Random(hashlib.sha512(self._epoch_seed).digest())
+        self._epoch_random = Random(hashlib.sha512(
+            self._epoch_seed.to_bytes()).digest())
 
         # if we have only to generate mutations, run a single test case with `generate_only=True`
         if generate_only:
@@ -463,7 +464,7 @@ class Engine:
         else:
             self._logger.info("Test case stopped")
 
-    def _fuzz_single_test_case(self, path: Path, mutation: Mutation | None, generate_only: bool = False):
+    def _fuzz_single_test_case(self, path: Path, mutation: Tuple[Mutation, str] | None, generate_only: bool = False):
         """Fuzz a given test case from a given path.
 
         Args:
@@ -582,7 +583,10 @@ class Engine:
                     continue
 
                 self._logger.debug("Applying mutation")
-                data = mutation.apply(msg).raw()
+                mutated_data = mutation[0].apply(
+                    msg.get_content_by_path(mutation[1]))
+                msg.set_content_by_path(mutation[1], mutated_data)
+                data = msg.raw()
                 self._logger.debug("Mutated data %s", data)
 
             for enc in self.encoders:
@@ -630,7 +634,7 @@ class Engine:
 
         self._test_case_teardown(True, part_of_epoch)
 
-    def _generate_mutations(self, data: Fuzzable) -> List[Mutation]:
+    def _generate_mutations(self, data: Message) -> List[Tuple[Mutation, str]]:
         """Generates a list of mutations for the given data.
 
         Parameters:
@@ -650,10 +654,10 @@ class Engine:
         # generate the mutations
         mutations = []
         while True:
-            mutator = self._epoch_random.choice(mutators)
-            mutation = mutator.mutate(data)
+            mutator, fuzzable_path = self._epoch_random.choice(mutators)
+            mutation = mutator.mutate(data.get_content_by_path(fuzzable_path))
             if mutation not in mutations:
-                mutations.append(mutation)
+                mutations.append((mutation, fuzzable_path))
 
             # if the mutator used is exhausted then remove it from the list of mutators
             try:
@@ -666,22 +670,24 @@ class Engine:
 
         return mutations
 
-    def fuzz_test_case(self, path: Path, mutation_type: str, mutator_state: Any, mutated_field_qualified_name: str):
+    def fuzz_test_case(self, path: Path, mutation_type: str, mutator_state: Any, mutated_field: str, mutated_entity_qualified_name: str):
         """Fuzz a given test case from a given path.
 
         Args:
             path: Path in the protocol to be fuzzed.
             mutation_type: Type of mutation to be applied.
             mutator_state: State of the mutator to be used.
-            mutated_field_qualified_name: The qualified name of the field in the `Fuzzable` object
-                that was mutated.
+            mutated_field: The name of the field in the `Fuzzable` object that was mutated.
+            mutated_entity_qualified_name: The qualified name of the `Fuzzable` object that was 
+                mutated.
         """
 
         # pylint: disable=import-outside-toplevel
         from pydoc import locate
-        mutation = Mutation(locate(mutation_type),
-                            mutator_state,
-                            mutated_field_qualified_name)
+        mutation = (Mutation(locate(mutation_type),
+                             mutator_state,
+                             mutated_field),
+                    mutated_entity_qualified_name)
         self._fuzz_single_test_case(path, mutation)
 
 
