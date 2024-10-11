@@ -80,17 +80,31 @@ class Mutator(ABC):
 
     Mutators are entities that know how to perform specific types of mutations over `Fuzzable` data.
     They are used to generate new test cases by applying random mutations to existing ones.
-
-    Attributes:
-        name: The name of the mutator. This attribute is automatically set to the name of the 
-            subclass that inherits from `Mutator`.
-        seed: The seed value to be used for randomization within this mutator. Defaults to `0`.
     """
 
     def __init__(self, seed: int = 0):
-        self.name: str = self.__class__.__name__
-        self.seed: int = seed
-        self._rand: Random = Random(hashlib.sha512(self.seed).digest())
+        """Initialize a `Mutator` object.
+
+        Args:
+            seed (optional): The seed value to be used for randomization within this mutator. 
+                Defaults to `0`.
+        """
+
+        self._name: str = self.__class__.__name__
+        self._seed: int = seed
+        self._rand: Random = Random(hashlib.sha512(self._seed).digest())
+
+    @property
+    def name(self) -> str:
+        """The name of the mutator."""
+
+        return self._name
+
+    @property
+    def seed(self) -> int:
+        """The seed value used for randomization within this mutator."""
+
+        return self._seed
 
     @abstractmethod
     def next(self):
