@@ -1,8 +1,8 @@
 import hashlib
+from typing import Type, Dict, List, Any
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from random import Random
-from typing import Any
 
 from .utils.errs import FuzzyDooError
 
@@ -129,3 +129,66 @@ class Mutator(ABC):
             Mutation: A new `Mutation` object representing the random mutation performed on the 
                 input data.
         """
+
+
+MUTATORS: Dict[str, List[Mutator]] = {}
+
+
+def mutable(cls: Type):
+    """Decorator that marks a class as mutable.
+
+    This decorator works together with the `mutates` decorator.
+
+    This decorator registers the class as a key in the `MUTATORS` registry and add an
+    implementation for the `mutators` method (see `Fuzzable`).
+    """
+
+    key = cls.__module__ + '.' + cls.__name__
+    MUTATORS[key] = []
+
+    def old_mutators(_):
+        return []
+
+    if hasattr(cls, 'mutators') \
+            and (not hasattr(cls, '__abstractmethods__')
+                 or 'mutators' not in getattr(cls, '__abstractmethods__')):
+        old_mutators = cls.mutators
+
+    def new_mutators(self):
+        print(key)
+        res = MUTATORS.get(key, [])
+        return old_mutators(self) + [(m, self.qualified_name) for m in res]
+
+    cls.mutators = new_mutators
+
+    if hasattr(cls, '__abstractmethods__'):
+        cls.__abstractmethods__ = frozenset(
+            name for name in cls.__abstractmethods__ if name != 'mutators'
+        )
+
+    return cls
+
+
+def mutates(*args: tuple[Type]):
+    """Decorator that specify which types the class is a mutator of.
+
+    This decorator works together with the `mutable` decorator.
+
+    This decorator registers the class as a value in the `MUTATORS` registry in each of the entries 
+    specified as argument. If one of the types specified is not marked as mutable with the 
+    `mutable` decorator, it will simply be skipped.
+
+    Args:
+        *args: The types for which the class is a mutator of.
+    """
+
+    def decorator(cls: Type):
+        for t in args:
+            key = t.__module__ + '.' + t.__name__
+            if key not in MUTATORS:
+                continue
+
+            MUTATORS[key].append(cls)
+        return cls
+
+    return decorator

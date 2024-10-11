@@ -5,7 +5,7 @@ import pycrate_asn1rt.asnobj_basic as basic
 import pycrate_asn1rt.asnobj_str as string
 
 from ...fuzzable import Fuzzable, PathFormatError, ContentNotFoundError
-from .init import mutable
+from ...mutator import mutable
 
 
 class ASN1Type(Fuzzable):
@@ -137,6 +137,7 @@ def map_type(type_to_map: Type[ASN1Obj]) -> Type[ASN1Type]:
     return _MAPPING[type_to_map]
 
 
+@mutable
 @mapped(basic.NULL)
 class NullType(ASN1Type):
     """ASN.1 basic type NULL object.

@@ -2,6 +2,7 @@ from abc import abstractmethod
 from typing import Any
 
 from ..fuzzable import Fuzzable
+from ..mutator import mutable
 from ..utils.graph import Node
 from ..utils.errs import FuzzyDooError
 
@@ -14,6 +15,7 @@ class MessageParsingError(MessageError):
     """Exception raised when an error occurs while parsing a message."""
 
 
+@mutable
 class Message(Node, Fuzzable):
     """Entity which represents a message in a communication protocol.
 

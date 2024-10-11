@@ -5,12 +5,12 @@ from pycrate_core.utils import PycrateErr
 from pycrate_asn1rt.asnobj import ASN1Obj
 
 from ...fuzzable import Fuzzable, PathFormatError, ContentNotFoundError
-from ...mutator import Mutator
+from ...mutator import Mutator, mutable
 from ..message import Message, MessageParsingError
 from .types import ASN1Type, EnumType, IntType, map_type
-from .init import mutable
 
 
+@mutable
 class NGAPMessage(Message):
     """A generic NGAP message.
 
