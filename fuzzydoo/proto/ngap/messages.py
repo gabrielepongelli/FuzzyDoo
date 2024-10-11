@@ -7,7 +7,7 @@ from pycrate_asn1rt.asnobj import ASN1Obj
 from ...fuzzable import Fuzzable, PathFormatError, ContentNotFoundError
 from ...mutator import Mutator, mutable
 from ..message import Message, MessageParsingError
-from .types import ASN1Type, EnumType, IntType, map_type
+from .types import EnumType, IntType, map_type
 
 
 @mutable
