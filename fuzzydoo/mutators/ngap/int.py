@@ -158,7 +158,7 @@ class IntEdgeMutator(Mutator):
         self._possible_values: list[int] | None = None
 
     def _export_state(self) -> dict:
-        """Export the current state of the `IntRandomMutator`.
+        """Export the current state of the `IntEdgeMutator`.
 
         Returns:
             dict: A dictionary containing the following keys:
@@ -179,13 +179,12 @@ class IntEdgeMutator(Mutator):
             upper_bound: The upper bound limit.
 
         Returns:
-            list[int]: A list of values in [lower_bound-2, lower_bound+2] and 
-                [upper_bound-2, upper_bound+2].
+            list[int]: A list of values in [lower_bound, lower_bound+2] and 
+                [upper_bound-3, upper_bound).
         """
 
-        # take +2/-2 of the range limits
-        possible_values = list(range(lower_bound-2, lower_bound+3))
-        possible_values += list(range(upper_bound-2, upper_bound+3))
+        possible_values = list(range(lower_bound, lower_bound+3))
+        possible_values += list(range(upper_bound-3, upper_bound))
         return possible_values
 
     def _generate_from_range(self, r: ASN1Range) -> list[int]:
