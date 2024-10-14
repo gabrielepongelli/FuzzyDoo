@@ -38,13 +38,13 @@ class EnumMutator(Mutator):
         rand = Random()
         rand.setstate(self._rand.getstate())
         possible_values = self._possible_values
+        set_state = possible_values is None
 
         if state is not None:
             rand.setstate(state['rand_state'])
             possible_values = state['possible_values']
-
-        if possible_values is None:
-            possible_values = data.possible_values
+        elif set_state:
+            self._possible_values = data.possible_values
 
         value = rand.choice(possible_values)
 
