@@ -2,7 +2,6 @@ from typing import Any, Dict
 from random import Random
 
 from ..mutator import Mutator, Mutation, MutatorCompleted, mutates
-from ..fuzzable import Fuzzable
 from ..proto.message import Message
 
 
@@ -37,7 +36,7 @@ class DelayedMessageMutator(Mutator):
             'rand_state': self._rand.getstate(),
         }
 
-    def _mutate(self, update_state: bool, _, state: Dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, update_state: bool, state: Dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are 
@@ -69,8 +68,8 @@ class DelayedMessageMutator(Mutator):
     def next(self):
         self._mutate(True, None)
 
-    def mutate(self, data: Fuzzable, state: Dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(False, data, state)
+    def mutate(self, _, state: Dict[str, Any] | None = None) -> Mutation:
+        return self._mutate(False, state)
 
 
 @mutates(Message)
@@ -98,7 +97,7 @@ class ReplayedMessageMutator(Mutator):
             'rand_state': self._rand.getstate(),
         }
 
-    def _mutate(self, update_state: bool, _, state: Dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, update_state: bool, state: Dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are 
@@ -130,8 +129,8 @@ class ReplayedMessageMutator(Mutator):
     def next(self):
         self._mutate(True, None)
 
-    def mutate(self, data: Fuzzable, state: Dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(False, data, state)
+    def mutate(self, _, state: Dict[str, Any] | None = None) -> Mutation:
+        return self._mutate(False, state)
 
 
 __all__ = ['DelayedMessageMutator', 'ReplayedMessageMutator']
