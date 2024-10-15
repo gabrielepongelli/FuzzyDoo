@@ -18,8 +18,8 @@ class EnumMutator(Mutator):
 
         Returns:
             dict: A dictionary containing the following keys:
-                'possible_values': The list of possible values that haven't been used yet.
                 'rand_state': The state of the random number generator.
+                'possible_values': The list of possible values that haven't been used yet.
         """
 
         return {

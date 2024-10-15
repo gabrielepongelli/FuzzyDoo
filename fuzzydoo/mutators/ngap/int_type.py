@@ -9,7 +9,7 @@ from ...proto.ngap.types import IntType
 
 @mutates(IntType)
 class IntRandomMutator(Mutator):
-    """Mutator for `IntType` objects that gerate random values in the integer boundaries."""
+    """Mutator for `IntType` objects that generate random values in the integer boundaries."""
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -28,12 +28,12 @@ class IntRandomMutator(Mutator):
 
         Returns:
             dict: A dictionary containing the following keys:
+                'rand_state': The state of the random number generator.
                 'range' (optional): The limits of the range values in which values should be
                     generated.
                 'extracted_values' (optional): The set of already extracted values.
                 'possible_values' (optional): The list of possible values if the range size is =<
                     256.
-                'rand_state': The state of the random number generator.
         """
 
         state = {'rand_state': self._rand.getstate()}
@@ -155,7 +155,7 @@ class IntRandomMutator(Mutator):
 
 @mutates(IntType)
 class IntEdgeMutator(Mutator):
-    """Mutator for `IntType` objects that gerate random values that are at around the edges of the
+    """Mutator for `IntType` objects that generate random values that are at around the edges of the
     allowed range.
     """
 
@@ -169,13 +169,13 @@ class IntEdgeMutator(Mutator):
 
         Returns:
             dict: A dictionary containing the following keys:
-                'possible_values': The list of possible values that haven't been already used.
                 'rand_state': The state of the random number generator.
+                'possible_values': The list of possible values that haven't been already used.
         """
 
         return {
-            'possible_values': self._possible_values,
-            'rand_state': self._rand.getstate()
+            'rand_state': self._rand.getstate(),
+            'possible_values': self._possible_values
         }
 
     def _generate_values_from_limits(self, lower_bound: int, upper_bound: int) -> list[int]:

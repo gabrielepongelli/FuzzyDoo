@@ -228,6 +228,28 @@ class RelOIDType(ASN1Type):
     """
 
 
+class BaseStringType(ASN1Type):
+    """Generic class for basic string types."""
+
+    @property
+    def codec(self) -> str:
+        """The specific codec used for this string type."""
+
+        # pylint: disable=protected-access
+        return self._content._codec.replace('-', '_')
+
+
+class AlphabeticalStringType(BaseStringType):
+    """Generic class for string types that have a fixed alphabet."""
+
+    @property
+    def alphabet(self) -> str:
+        """The specific alphabet used for this string type."""
+
+        # pylint: disable=protected-access
+        return self._content._ALPHA_RE
+
+
 @mutable
 @mapped(string.BIT_STR)
 class BitStrType(ASN1Type):
@@ -251,7 +273,7 @@ class OctStrType(ASN1Type):
 
 @mutable
 @mapped(string.STR_UTF8)
-class StrUtf8Type(ASN1Type):
+class StrUtf8Type(BaseStringType):
     """ASN.1 basic type UTF8String object.
 
     ASN.1 basic type UTF8String object. Its values are of type `str`.
@@ -260,7 +282,7 @@ class StrUtf8Type(ASN1Type):
 
 @mutable
 @mapped(string.STR_NUM)
-class StrNumType(ASN1Type):
+class StrNumType(AlphabeticalStringType):
     """ASN.1 basic type NumericString object.
 
     ASN.1 basic type NumericString object. Its values are of type `str`.
@@ -269,7 +291,7 @@ class StrNumType(ASN1Type):
 
 @mutable
 @mapped(string.STR_PRINT)
-class StrPrintType(ASN1Type):
+class StrPrintType(AlphabeticalStringType):
     """ASN.1 basic type PrintableString object.
 
     ASN.1 basic type PrintableString object. Its values are of type `str`.
@@ -278,7 +300,7 @@ class StrPrintType(ASN1Type):
 
 @mutable
 @mapped(string.STR_TELE)
-class StrTeleType(ASN1Type):
+class StrTeleType(BaseStringType):
     """ASN.1 basic type TeletexString object.
 
     ASN.1 basic type TeletexString object. Its values are of type `str`.
@@ -287,7 +309,7 @@ class StrTeleType(ASN1Type):
 
 @mutable
 @mapped(string.STR_T61)
-class StrT61Type(ASN1Type):
+class StrT61Type(BaseStringType):
     """ASN.1 basic type T61String object.
 
     ASN.1 basic type T61String object. Its values are of type `str`.
@@ -296,7 +318,7 @@ class StrT61Type(ASN1Type):
 
 @mutable
 @mapped(string.STR_VID)
-class StrVidType(ASN1Type):
+class StrVidType(BaseStringType):
     """ASN.1 basic type VideotextString object.
 
     ASN.1 basic type VideotextString object. Its values are of type `str`.
@@ -305,7 +327,7 @@ class StrVidType(ASN1Type):
 
 @mutable
 @mapped(string.STR_IA5)
-class StrIa5Type(ASN1Type):
+class StrIa5Type(AlphabeticalStringType):
     """ASN.1 basic type IA5String object.
 
     ASN.1 basic type IA5String object. Its values are of type `str`.
@@ -314,7 +336,7 @@ class StrIa5Type(ASN1Type):
 
 @mutable
 @mapped(string.STR_GRAPH)
-class StrGraphType(ASN1Type):
+class StrGraphType(BaseStringType):
     """ASN.1 basic type GraphicString object.
 
     ASN.1 basic type GraphicString object. Its values are of type `str`.
@@ -323,7 +345,7 @@ class StrGraphType(ASN1Type):
 
 @mutable
 @mapped(string.STR_VIS)
-class StrVisType(ASN1Type):
+class StrVisType(AlphabeticalStringType):
     """ASN.1 basic type VisibleString object.
 
     ASN.1 basic type VisibleString object. Its values are of type `str`.
@@ -332,7 +354,7 @@ class StrVisType(ASN1Type):
 
 @mutable
 @mapped(string.STR_ISO646)
-class StrIso646Type(ASN1Type):
+class StrIso646Type(AlphabeticalStringType):
     """ASN.1 basic type ISO646String object.
 
     ASN.1 basic type ISO646String object. Its values are of type `str`.
@@ -341,7 +363,7 @@ class StrIso646Type(ASN1Type):
 
 @mutable
 @mapped(string.STR_GENE)
-class StrGeneType(ASN1Type):
+class StrGeneType(BaseStringType):
     """ASN.1 basic type GenericString object.
 
     ASN.1 basic type GenericString object. Its values are of type `str`.
@@ -350,7 +372,7 @@ class StrGeneType(ASN1Type):
 
 @mutable
 @mapped(string.STR_UNIV)
-class StrUnivType(ASN1Type):
+class StrUnivType(BaseStringType):
     """ASN.1 basic type UniversalString object.
 
     ASN.1 basic type UniversalString object. Its values are of type `str`.
@@ -359,7 +381,7 @@ class StrUnivType(ASN1Type):
 
 @mutable
 @mapped(string.STR_BMP)
-class StrBmpType(ASN1Type):
+class StrBmpType(BaseStringType):
     """ASN.1 basic type BMPString object.
 
     ASN.1 basic type BMPString object. Its values are of type `str`.
@@ -404,6 +426,8 @@ __all__ = [
     "EnumType",
     "OIDType",
     "RelOIDType",
+    "BaseStringType",
+    "AlphabeticalStringType",
     "BitStrType",
     "OctStrType",
     "StrUtf8Type",
