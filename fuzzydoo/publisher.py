@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 
 from .utils.errs import FuzzyDooError
 
@@ -82,28 +81,4 @@ class Publisher(ABC):
         """
 
 
-@dataclass
-class NetworkPublisher(Publisher):
-    """This class represents a `Publisher` over a network. It is distinguished by an address and a 
-    port.
-
-    Attributes:
-        address: The network address of the publisher.
-        port: The network port of the publisher.
-    """
-
-    def __init__(self, address: str, port: int):
-        """Initialize a new instance of `Publisher` with the given address and port.
-
-        Args:
-            address: The network address of the publisher.
-            port: The network port of the publisher.
-        """
-
-        super().__init__()
-        self.address = address
-        self.port = port
-
-
-__all__ = ['Publisher', 'PublisherError',
-           'PublisherOperationError', 'NetworkPublisher']
+__all__ = ['Publisher', 'PublisherError', 'PublisherOperationError']

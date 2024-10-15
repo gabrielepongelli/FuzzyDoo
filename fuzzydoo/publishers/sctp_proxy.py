@@ -7,18 +7,18 @@ from queue import SimpleQueue
 
 import sctp
 
-from ..publisher import NetworkPublisher, PublisherOperationError
+from ..publisher import Publisher, PublisherOperationError
 
 
 RECV_BUFF_LEN = 4096
 SELECT_TIMEOUT = 0.1
 
 
-class ProxyEndpoint(NetworkPublisher):
+class ProxyEndpoint(Publisher):
     """A class representing one endpoint of the SCTP proxy.
 
     This class handles the arrival and delivery of data from one endpoint of the SCTP proxy. It 
-    also acts as a `NetworkPublisher` for the fuzzer.
+    also acts as a `Publisher` for the fuzzer.
 
     Attributes:
         socket: The source SCTP socket for this endpoint.
@@ -27,16 +27,14 @@ class ProxyEndpoint(NetworkPublisher):
         output_queue: A queue for storing outgoing data.
     """
 
-    def __init__(self, ip: str, port: int, proxy):
+    def __init__(self, proxy):
         """Initialize a `ProxyEndpoint` instance.
 
         Parameters:
-            ip: The IP address of the proxy endpoint.
-            port: The port number of the proxy endpoint.
             proxy (SctpProxy): The SCTP proxy instance that manages this endpoint.
         """
 
-        super().__init__(ip, port)
+        super().__init__()
 
         self.socket: sctp.sctpsocket | None = None
         self.dst: sctp.sctpsocket | None = None
@@ -128,7 +126,7 @@ class SctpProxy:
         self._server_socket.events.shutdown = True
 
         # source of messages for the fuzzer
-        self._source = ProxyEndpoint(self.listen_ip, self.listen_port, self)
+        self._source = ProxyEndpoint(self)
 
         # socket forwarding data to the target
         self._forward_socket = sctp.sctpsocket_tcp(socket.AF_INET)
@@ -137,8 +135,7 @@ class SctpProxy:
         self._forward_socket.events.shutdown = True
 
         # target for the fuzzer
-        self._target = ProxyEndpoint(
-            self.forward_to_ip, self.forward_to_port, self)
+        self._target = ProxyEndpoint(self)
 
         self._logger: logging.Logger = logging.getLogger('SCTP Proxy')
 
@@ -160,24 +157,24 @@ class SctpProxy:
 
         return not self._stop_flag.is_set()
 
-    def get_source(self) -> NetworkPublisher:
+    def get_source(self) -> Publisher:
         """Returns the source endpoint of the SCTP proxy.
 
         The source endpoint is responsible for receiving data from the local listening IP and port.
 
         Returns:
-            NetworkPublisher: An instance of `NetworkPublisher` representing the source endpoint.
+            Publisher: An instance of `Publisher` representing the source endpoint.
         """
 
         return self._source
 
-    def get_target(self) -> NetworkPublisher:
+    def get_target(self) -> Publisher:
         """Returns the target endpoint of the SCTP proxy.
 
         The target endpoint is responsible for sending data to the remote IP and port.
 
         Returns:
-            NetworkPublisher: An instance of `NetworkPublisher` representing the target endpoint.
+            Publisher: An instance of `Publisher` representing the target endpoint.
         """
 
         return self._target
