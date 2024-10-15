@@ -10,7 +10,7 @@ from random import Random
 from typing import Any, List, Tuple
 
 from .proto import Protocol, Message, MessageParsingError
-from .publisher import Publisher, NetworkPublisher, PublisherOperationError
+from .publisher import Publisher, PublisherOperationError
 from .monitor import Monitor
 from .encoder import Encoder
 from .decoder import Decoder
@@ -71,7 +71,7 @@ class Engine:
                  main_seed: int,
                  protocol: Protocol,
                  source: Publisher,
-                 target: NetworkPublisher,
+                 target: Publisher,
                  monitors: List[Monitor],
                  encoders: List[Encoder],
                  decoders: List[Decoder],
@@ -109,7 +109,7 @@ class Engine:
         self.main_seed: int = main_seed
         self.protocol: Protocol = protocol
         self.source: Publisher = source
-        self.target: NetworkPublisher = target
+        self.target: Publisher = target
         self.encoders: List[Encoder] = encoders
         self.decoders: List[Decoder] = decoders
         self.monitors: List[Monitor] = monitors
