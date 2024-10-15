@@ -12,8 +12,8 @@ from typing import Any, List, Tuple
 from .proto import Protocol, Message, MessageParsingError
 from .publisher import Publisher, PublisherOperationError
 from .monitor import Monitor
-from .encoder import Encoder
-from .decoder import Decoder
+from .encoder import Encoder, EncodingError
+from .decoder import Decoder, DecodingError
 from .mutator import Mutation, MutatorCompleted
 from .utils.graph import Path
 from .utils.errs import FuzzyDooError
@@ -535,7 +535,7 @@ class Engine:
                     self._logger.debug("Message: %s", data)
                     data = dec.decode(data, self.protocol,
                                       msg, to_be_fuzzed)
-            except Exception as e:
+            except DecodingError as e:
                 self._logger.debug("Error while decoding message: %s", str(e))
                 self._test_case_teardown(False, part_of_epoch)
                 raise TestCaseExecutionError(
@@ -589,13 +589,19 @@ class Engine:
                 data = msg.raw()
                 self._logger.debug("Mutated data %s", data)
 
-            for enc in self.encoders:
-                self._logger.debug(
-                    "Encoding message with encoder %s", type(enc))
-                self._logger.debug("Message: %s", data)
-                data = enc.encode(data, self.protocol, msg)
+            try:
+                for enc in self.encoders:
+                    self._logger.debug(
+                        "Encoding message with encoder %s", type(enc))
+                    self._logger.debug("Message: %s", data)
+                    data = enc.encode(data, self.protocol, msg)
+            except EncodingError as e:
+                self._logger.debug("Error while encoding message: %s", str(e))
+                self._test_case_teardown(False, part_of_epoch)
+                raise TestCaseExecutionError(
+                    "message encoding error: " + str(e)) from e
 
-            self._logger.debug("Decoded data %s", data)
+            self._logger.debug("Encoded data %s", data)
 
             try:
                 self._logger.debug(
