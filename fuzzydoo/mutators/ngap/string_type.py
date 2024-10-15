@@ -434,3 +434,7 @@ class AlphabetStringMutator(Mutator):
                             mutator_state=self._export_state(),
                             field_name=data.name,
                             mutated_value=value)
+
+
+__all__ = ['BitStrMutator', 'OctStrMutator',
+           'GenericStrMutator', 'AlphabetStringMutator']
