@@ -299,3 +299,4 @@ class SctpProxy:
                 self._handle_sctp_connection(client_socket)
             except OSError as e:
                 self._logger.error("Error accepting connections: %s", e)
+                self.stop()
