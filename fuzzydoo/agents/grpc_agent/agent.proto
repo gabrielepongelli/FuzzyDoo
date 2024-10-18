@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+service AgentService {
+  rpc onTestStart(TestInfoMessage) returns (ResponseMessage) {}
+  rpc onTestEnd(EmptyMessage) returns (ResponseMessage) {}
+  rpc getData(EmptyMessage) returns (ResponseMessage) {}
+  rpc redoTest(EmptyMessage) returns (ResponseMessage) {}
+  rpc faultDetected(EmptyMessage) returns (ResponseMessage) {}
+  rpc onFault(EmptyMessage) returns (ResponseMessage) {}
+  rpc onShutdown(EmptyMessage) returns (ResponseMessage) {}
+  rpc stopExecution(EmptyMessage) returns (ResponseMessage) {}
+}
+
+message EmptyMessage {}
+
+message TestInfoMessage { string path = 1; }
+
+message ResponseMessage {
+  enum Status {
+    OK = 0;
+    ERROR = 1;
+  }
+  Status status = 1;
+
+  message TestData {
+
+    message TestDataRecord {
+      string name = 1;
+      bytes content = 2;
+    }
+
+    repeated TestDataRecord records = 1;
+  }
+
+  oneof content {
+    string error = 4;
+    bool flag = 5;
+    TestData data = 6;
+  }
+}

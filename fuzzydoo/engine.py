@@ -50,7 +50,7 @@ class Engine:
         protocols: List of protocols to be fuzzed.
         source: Source of messages that will be fuzzed.
         target: Target system to which the mutated messages will be forwarded.
-        agents: List of agents to use during the testing process.
+        agent: Agent multiplexer containing all the agents to use during the testing process.
         encoders: List of encoders to prepare the fuzzed data before sending them to `target`.
         decoders: List of decoders to decode the data received by `source` and prepare them to
             be fuzzed.
@@ -199,52 +199,6 @@ class Engine:
         """
 
         return self._num_cases_actually_fuzzed / self.runtime
-
-    # def _target_alive(self) -> bool:
-    #    """Check if the target system is alive.
-    #
-    #    Returns:
-    #        bool: `True` if the target system is alive, `False` otherwise.
-    #    """
-    #
-    #    is_alive = True
-    #    for monitor in self.monitors:
-    #        if not monitor.is_target_alive():
-    #            self._logger.error("Target is not alive")
-    #            is_alive = False
-    #            break
-    #
-    #    return is_alive
-
-    # def _restart_target(self) -> bool:
-    #    """Restart the target system and check its liveness.
-    #
-    #    This function attempts to restart the target system using the available monitors. After
-    #    restarting, it waits for a specified amount of time to allow the system to settle and
-    #    finally it checks the liveness of the target system using the monitors.
-    #
-    #    Returns:
-    #        bool: `True` if the target system was successfully restarted and is alive, `False`
-    #            otherwise.
-    #    """
-    #
-    #    self._logger.info("Restarting target")
-    #    restarted = False
-    #    for monitor in self.monitors:
-    #        if monitor.restart_target():
-    #            self._logger.info(
-    #                "Giving the process %s seconds to settle in", self.target_restart_timeout)
-    #            time.sleep(self.target_restart_timeout)
-    #            restarted = True
-    #            break
-    #
-    #    is_alive = False
-    #    if restarted:
-    #        is_alive = self._target_alive()
-    #    else:
-    #        self._logger.error("No monitor could restart the target")
-    #
-    #    return restarted and is_alive
 
     def run(self) -> bool:
         """Start to fuzz the protocol specified.
