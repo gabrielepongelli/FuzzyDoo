@@ -1,5 +1,3 @@
-from typing import List
-
 from .message import Message
 from ..utils.graph import Graph, Node, Edge, Path
 
@@ -111,7 +109,7 @@ class Protocol(Graph):
 
         yield self._iterate_paths_rec(self.root, [])
 
-    def _iterate_paths_rec(self, msg: Message, path: List[Edge]):
+    def _iterate_paths_rec(self, msg: Message, path: list[Edge]):
         """Recursive helper for `__next__`.
 
         Args:

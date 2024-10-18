@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Any
 from random import Random
 
 from pycrate_asn1rt.setobj import ASN1Set, ASN1Range
@@ -53,7 +53,7 @@ class IntRandomMutator(Mutator):
             r: The ASN.1 range object from which to extract the limits.
 
         Returns:
-            Tuple[int, int]: A tuple of the form [lower_bound, upper_bound).
+            tuple[int, int]: A tuple of the form [lower_bound, upper_bound).
         """
 
         range_limits = (r.lb, r.ub)
@@ -63,7 +63,7 @@ class IntRandomMutator(Mutator):
             range_limits = (range_limits[0], range_limits[1]+1)
         return range_limits
 
-    def _mutate(self, data: IntType, update_state: bool, state: Dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: IntType, update_state: bool, state: dict[str: Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -149,7 +149,7 @@ class IntRandomMutator(Mutator):
     def next(self):
         self._mutate(True, None)
 
-    def mutate(self, data: IntType, state: Dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: IntType, state: dict[str: Any] | None = None) -> Mutation:
         return self._mutate(False, data, state)
 
 
@@ -213,7 +213,7 @@ class IntEdgeMutator(Mutator):
 
         return self._generate_values_from_limits(*curr_range)
 
-    def _mutate(self, data: IntType, update_state: bool, state: Dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: IntType, update_state: bool, state: dict[str: Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -258,7 +258,7 @@ class IntEdgeMutator(Mutator):
     def next(self):
         self._mutate(True, None)
 
-    def mutate(self, data: IntType, state: Dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: IntType, state: dict[str: Any] | None = None) -> Mutation:
         return self._mutate(False, data, state)
 
 

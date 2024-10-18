@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List, Any, Type, Tuple
+from typing import Any, Type
 
 from .mutator import Mutator
 from .utils.errs import FuzzyDooError
@@ -59,7 +59,7 @@ class Fuzzable(ABC):
         return self.name if self.parent is None else f"{self.parent.qualified_name}.{self.name}"
 
     @abstractmethod
-    def mutators(self) -> List[Tuple[Type[Mutator], str]]:
+    def mutators(self) -> list[tuple[Type[Mutator], str]]:
         """Get all the mutators associated with this fuzzable entity.
 
         This method is intended to be overridden in subclasses to provide a list of mutator classes 
@@ -67,7 +67,7 @@ class Fuzzable(ABC):
         be a subclass of `Mutator`.
 
         Returns:
-            List[Tuple[Type[Mutator], str]]: A list of mutator classes associated with this 
+            list[tuple[Type[Mutator], str]]: A list of mutator classes associated with this 
                 fuzzable entity along with the qualified name of the targeted fuzzable entity.
         """
 

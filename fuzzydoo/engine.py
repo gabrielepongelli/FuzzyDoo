@@ -7,7 +7,7 @@ import hashlib
 import sys
 import pathlib
 from random import Random
-from typing import Any, List, Tuple
+from typing import Any
 
 from .proto import Protocol, Message, MessageParsingError
 from .publisher import Publisher, PublisherOperationError
@@ -72,9 +72,9 @@ class Engine:
                  protocol: Protocol,
                  source: Publisher,
                  target: Publisher,
-                 agents: List[Agent],
-                 encoders: List[Encoder],
-                 decoders: List[Decoder],
+                 agents: list[Agent],
+                 encoders: list[Encoder],
+                 decoders: list[Decoder],
                  findings_dir_path: pathlib.Path,
                  max_attempts_of_target_restart: int,
                  max_test_cases_per_epoch: int,
@@ -110,8 +110,8 @@ class Engine:
         self.protocol: Protocol = protocol
         self.source: Publisher = source
         self.target: Publisher = target
-        self.encoders: List[Encoder] = encoders
-        self.decoders: List[Decoder] = decoders
+        self.encoders: list[Encoder] = encoders
+        self.decoders: list[Decoder] = decoders
 
         self.agent: AgentMultiplexer = AgentMultiplexer()
         for a in agents:
@@ -167,7 +167,7 @@ class Engine:
         self._epoch_random: Random | None = None
         """Random number generator used inside the current epoch."""
 
-        self._epoch_mutations: List[Tuple[Mutation, str]] = []
+        self._epoch_mutations: list[tuple[Mutation, str]] = []
         """List of mutations to perform during the current epoch and the associated fuzzable path."""
 
         self._test_case_stop_reason: str | None = None
@@ -410,7 +410,7 @@ class Engine:
         else:
             self._logger.info("Test case stopped")
 
-    def _fuzz_single_test_case(self, path: Path, mutation: Tuple[Mutation, str] | None, generate_only: bool = False):
+    def _fuzz_single_test_case(self, path: Path, mutation: tuple[Mutation, str] | None, generate_only: bool = False):
         """Fuzz a given test case from a given path.
 
         Args:
@@ -596,14 +596,14 @@ class Engine:
         except AgentError as e:
             raise UnrecoverableAgentError(str(e)) from e
 
-    def _generate_mutations(self, data: Message) -> List[Tuple[Mutation, str]]:
+    def _generate_mutations(self, data: Message) -> list[tuple[Mutation, str]]:
         """Generates a list of mutations for the given data.
 
         Parameters:
             data: The data for which mutations need to be generated.
 
         Returns:
-            List[Mutation]: A list of mutations generated for the given data.
+            list[tuple[Mutation, str]]: A list of mutations generated for the given data.
         """
 
         # instantiate all the mutators with a seed

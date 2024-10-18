@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Any
+from typing import Any
 
 
 @dataclass
@@ -75,7 +75,7 @@ class Path:
         start: The starting node of the path.
     """
 
-    def __init__(self, path: List[Edge], start: Node | None = None):
+    def __init__(self, path: list[Edge], start: Node | None = None):
         """Initializes a new instance of the Path class.
 
         Args:
@@ -84,7 +84,7 @@ class Path:
                 node is set to the source node of the first edge in the path.
         """
 
-        self.path: List[Edge] = path
+        self.path: list[Edge] = path
         self.start: Node = path[0].src if start is None else start
 
         # keeps track of the current edge in the iteration
@@ -190,8 +190,8 @@ class Graph:
         """
 
         self.id: int = graph_id
-        self.edges: Dict[int, Edge] = {}
-        self.nodes: Dict[int, Node] = {}
+        self.edges: dict[int: Edge] = {}
+        self.nodes: dict[int: Node] = {}
 
     def add_edge(self, edge: Edge):
         """Add a new edge to the graph. Ensures a node exists for both the 
@@ -258,7 +258,7 @@ class Graph:
 
         return self
 
-    def edges_from(self, node_id: int) -> List[Edge]:
+    def edges_from(self, node_id: int) -> list[Edge]:
         """Enumerate the edges from the specified node.
 
         Args:
@@ -270,7 +270,7 @@ class Graph:
 
         return [edge_value for edge_value in list(self.edges.values()) if edge_value.src == node_id]
 
-    def edges_to(self, node_id: int) -> List[Edge]:
+    def edges_to(self, node_id: int) -> list[Edge]:
         """Enumerate the edges to the specified node.
 
         Args:

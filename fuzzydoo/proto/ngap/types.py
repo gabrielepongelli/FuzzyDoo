@@ -1,4 +1,4 @@
-from typing import Type, Any, Dict
+from typing import Type, Any
 
 from pycrate_asn1rt.asnobj import ASN1Obj
 import pycrate_asn1rt.asnobj_basic as basic
@@ -99,7 +99,7 @@ class ASN1Type(Fuzzable):
                                     '{path}' exists in this type")
 
 
-_MAPPING: Dict[Type[ASN1Obj], Type[ASN1Type]] = {}
+_MAPPING: dict[Type[ASN1Obj]: Type[ASN1Type]] = {}
 
 
 def mapped(base: Type[ASN1Obj]):

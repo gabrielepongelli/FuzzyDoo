@@ -1,5 +1,5 @@
 import hashlib
-from typing import Type, Dict, List, Any
+from typing import Type, Any
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from random import Random
@@ -129,7 +129,7 @@ class Mutator(ABC):
         """
 
 
-MUTATORS: Dict[str, List[Mutator]] = {}
+MUTATORS: dict[str: list[Mutator]] = {}
 
 
 def mutable(cls: Type):

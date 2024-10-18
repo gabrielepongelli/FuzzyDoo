@@ -150,14 +150,14 @@ class NGAPMessage(Message):
             raise ContentNotFoundError(f"No content at the path \
                                        '{path}' exists in the message")
 
-    def mutators(self) -> List[Tuple[Type[Mutator], str]]:
+    def mutators(self) -> list[tuple[Type[Mutator], str]]:
         """Get all the mutators associated with this fuzzable entity.
 
         This method is overridden to provide all the mutators associated with this message, and all 
         the mutators associated with all the mutable elements contained inside this message.
 
         Returns:
-            List[Tuple[Type[Mutator], str]]: A list of mutator classes along with the qualified 
+            list[tuple[Type[Mutator], str]]: A list of mutator classes along with the qualified 
                 name of the targeted fuzzable entity.
         """
 

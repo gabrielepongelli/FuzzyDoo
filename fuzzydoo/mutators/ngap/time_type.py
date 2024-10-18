@@ -1,5 +1,5 @@
 import operator
-from typing import Dict, Any
+from typing import Any
 from random import Random
 from functools import reduce
 
@@ -113,7 +113,7 @@ class TimeMutator(Mutator):
                 res['fraction'],
                 res['zone'])
 
-    def _mutate(self, data, update_state: bool, state: Dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data, update_state: bool, state: dict[str: Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -152,7 +152,7 @@ class TimeMutator(Mutator):
     def next(self):
         self._mutate(True, None)
 
-    def mutate(self, data, state: Dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data, state: dict[str: Any] | None = None) -> Mutation:
         return self._mutate(False, data, state)
 
 
