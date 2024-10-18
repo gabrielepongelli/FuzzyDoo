@@ -33,6 +33,19 @@ class Agent:
 
         return self._name
 
+    def set_options(self, **kwargs):
+        """Set options for the agent.
+
+        This method will be called before starting a test (and before `on_test_start`).
+
+        Args:
+            kwargs: Additional keyword arguments.
+
+        Raises:
+            AgentError: If some error occurred at the agent side. In this case the method 
+                `stop_execution` is called.
+        """
+
     def on_test_start(self, path: str):
         """Called right before the start of a test case.
 

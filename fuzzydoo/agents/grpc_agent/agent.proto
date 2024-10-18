@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 service AgentService {
+  rpc setOptions(OptionsMessage) returns (ResponseMessage) {}
   rpc onTestStart(TestInfoMessage) returns (ResponseMessage) {}
   rpc onTestEnd(EmptyMessage) returns (ResponseMessage) {}
   rpc getData(EmptyMessage) returns (ResponseMessage) {}
@@ -14,6 +15,15 @@ service AgentService {
 message EmptyMessage {}
 
 message TestInfoMessage { string path = 1; }
+
+message OptionsMessage {
+  message Option {
+    string name = 1;
+    bytes value = 2;
+  }
+
+  repeated Option options = 1;
+}
 
 message ResponseMessage {
   enum Status {

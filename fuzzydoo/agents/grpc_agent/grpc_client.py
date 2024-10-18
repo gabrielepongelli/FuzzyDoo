@@ -1,3 +1,5 @@
+import pickle
+
 import grpc
 
 from ...agent import Agent, AgentError
@@ -24,6 +26,26 @@ class GrpcClientAgent(Agent):
         self._channel = grpc.insecure_channel(
             f"{kwargs['address']}:{kwargs['port']}")
         self._stub = AgentServiceStub(self._channel)
+
+    def set_options(self, **kwargs):
+        # pylint: disable=no-member
+        options = [agent_pb2.OptionsMessage.Option(
+            name=k, value=pickle.dumps(v)) for k, v in kwargs.items()]
+
+        msg = agent_pb2.OptionsMessage()
+        msg.options.extend(options)
+
+        try:
+            response = self._stub.setOptions(msg)
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
 
     def on_test_start(self, path: str):
         # pylint: disable=no-member

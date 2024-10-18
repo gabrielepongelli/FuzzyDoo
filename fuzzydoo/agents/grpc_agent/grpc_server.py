@@ -1,3 +1,4 @@
+import pickle
 from concurrent.futures import ThreadPoolExecutor
 
 import grpc
@@ -58,17 +59,33 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         gracefully.
         """
 
-        self._server.start()
+        self.server.start()
 
         try:
-            self._server.wait_for_termination()
+            self.server.wait_for_termination()
         except KeyboardInterrupt:
             try:
                 self.on_shutdown()
             except AgentError:
                 pass
 
-            self._server.stop(grace=0)
+            self.server.stop(grace=0)
+
+    def setOptions(self, request, context):
+        options = {}
+        for opt in request.options:
+            options[opt.name] = pickle.loads(opt.value)
+
+        try:
+            self.set_options(**options)
+        except AgentError as e:
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error=str(e))
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
 
     def onTestStart(self, request, context):
         try:
