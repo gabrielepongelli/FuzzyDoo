@@ -36,7 +36,7 @@ class Agent:
     def set_options(self, **kwargs):
         """Set options for the agent.
 
-        This method will be called before starting a test (and before `on_test_start`).
+        This method should be called before passing the agent to the engine.
 
         Args:
             kwargs: Additional keyword arguments.
