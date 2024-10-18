@@ -90,6 +90,11 @@ class Path:
         # keeps track of the current edge in the iteration
         self._curr: int | None = None
 
+    def __str__(self) -> str:
+        """Returns a string representation of the current path."""
+
+        return '.'.join(str(edge.dst) for edge in self.path)
+
     def __iter__(self):
         """Returns an iterator for the Path class."""
 

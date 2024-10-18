@@ -139,3 +139,34 @@ class Protocol(Graph):
         # finished with the last message on the path, pop it off the path stack.
         if path:
             path.pop()
+
+    def build_path(self, path: str) -> Path:
+        """Build a path from a given string representation.
+
+        Args:
+            path: String representation of the path.
+
+        Returns:
+            Path: The built path.
+
+        Raises:
+            ValueError: If the provided string representation does not match with a possible path.
+        """
+
+        msg_names = path.split(".")
+        path_edges = []
+
+        last_node = self.root
+        prev_path_len = 0
+        for name in msg_names:
+            for edge in self.edges_from(last_node.id):
+                if edge.dst.name == name:
+                    path_edges.append(edge)
+                    last_node = edge.dst
+                    prev_path_len += 1
+                    break
+
+            if len(path_edges) == prev_path_len:
+                raise ValueError(f"Invalid path: '{path}'")
+
+        return Path(path_edges)

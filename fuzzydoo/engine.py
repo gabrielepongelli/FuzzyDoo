@@ -11,7 +11,7 @@ from typing import Any, List, Tuple
 
 from .proto import Protocol, Message, MessageParsingError
 from .publisher import Publisher, PublisherOperationError
-from .monitor import Monitor
+from .agent import AgentMultiplexer, Agent, AgentError
 from .encoder import Encoder, EncodingError
 from .decoder import Decoder, DecodingError
 from .mutator import Mutation, MutatorCompleted
@@ -23,16 +23,16 @@ class FuzzingEngineError(FuzzyDooError):
     """Generic error for the `Engine` class."""
 
 
+class UnrecoverableAgentError(FuzzingEngineError):
+    """Exception raised when an unrecoverable error occurs."""
+
+
 class TestCaseExecutionError(FuzzingEngineError):
     """Exception raised when an error occurs during test case execution."""
 
 
 class TestCaseSetupError(FuzzingEngineError):
     """Exception raised when an error occurs during test case setup."""
-
-
-class TargetAvailabilityError(FuzzingEngineError):
-    """Exception raised when the target system is not alive and cannot be restarted."""
 
 
 class Engine:
@@ -42,7 +42,7 @@ class Engine:
 
     The `Engine` class is responsible for managing the fuzzing process. It initializes the
     necessary components, such as protocols to be fuzzed, message sources, target systems,
-    monitors, encoders, decoders, and result storage. It also provides methods to start the fuzzing
+    agents, encoders, decoders, and result storage. It also provides methods to start the fuzzing
     process, calculate runtime and execution speed, and handle target system restarts.
 
     Attributes:
@@ -50,7 +50,7 @@ class Engine:
         protocols: List of protocols to be fuzzed.
         source: Source of messages that will be fuzzed.
         target: Target system to which the mutated messages will be forwarded.
-        monitors: List of monitors to check the target system's status.
+        agents: List of agents to use during the testing process.
         encoders: List of encoders to prepare the fuzzed data before sending them to `target`.
         decoders: List of decoders to decode the data received by `source` and prepare them to
             be fuzzed.
@@ -72,7 +72,7 @@ class Engine:
                  protocol: Protocol,
                  source: Publisher,
                  target: Publisher,
-                 monitors: List[Monitor],
+                 agents: List[Agent],
                  encoders: List[Encoder],
                  decoders: List[Decoder],
                  findings_dir_path: pathlib.Path,
@@ -91,7 +91,7 @@ class Engine:
             protocol: Protocol to be fuzzed.
             source: Source of messages that will be fuzzed.
             target: Target system to which the mutated messages will be forwarded.
-            monitors: List of monitors to check the target system's status.
+            agents: List of agents to use during the testing process.
             encoders: List of encoders to prepare the fuzzed data before sending them to `target`.
             decoders: List of decoders to decode the data received by `source` and prepare them to
                 be fuzzed.
@@ -112,7 +112,11 @@ class Engine:
         self.target: Publisher = target
         self.encoders: List[Encoder] = encoders
         self.decoders: List[Decoder] = decoders
-        self.monitors: List[Monitor] = monitors
+
+        self.agent: AgentMultiplexer = AgentMultiplexer()
+        for a in agents:
+            self.agent.add_agent(a)
+
         self.findings_dir_path: pathlib.Path | None = findings_dir_path
         self.max_attempts_of_target_restart: int = max_attempts_of_target_restart
         self.max_test_cases_per_epoch: int = max_test_cases_per_epoch
@@ -196,51 +200,51 @@ class Engine:
 
         return self._num_cases_actually_fuzzed / self.runtime
 
-    def _target_alive(self) -> bool:
-        """Check if the target system is alive.
+    # def _target_alive(self) -> bool:
+    #    """Check if the target system is alive.
+    #
+    #    Returns:
+    #        bool: `True` if the target system is alive, `False` otherwise.
+    #    """
+    #
+    #    is_alive = True
+    #    for monitor in self.monitors:
+    #        if not monitor.is_target_alive():
+    #            self._logger.error("Target is not alive")
+    #            is_alive = False
+    #            break
+    #
+    #    return is_alive
 
-        Returns:
-            bool: `True` if the target system is alive, `False` otherwise.
-        """
-
-        is_alive = True
-        for monitor in self.monitors:
-            if not monitor.is_target_alive():
-                self._logger.error("Target is not alive")
-                is_alive = False
-                break
-
-        return is_alive
-
-    def _restart_target(self) -> bool:
-        """Restart the target system and check its liveness.
-
-        This function attempts to restart the target system using the available monitors. After
-        restarting, it waits for a specified amount of time to allow the system to settle and
-        finally it checks the liveness of the target system using the monitors.
-
-        Returns:
-            bool: `True` if the target system was successfully restarted and is alive, `False`
-                otherwise.
-        """
-
-        self._logger.info("Restarting target")
-        restarted = False
-        for monitor in self.monitors:
-            if monitor.restart_target():
-                self._logger.info(
-                    "Giving the process %s seconds to settle in", self.target_restart_timeout)
-                time.sleep(self.target_restart_timeout)
-                restarted = True
-                break
-
-        is_alive = False
-        if restarted:
-            is_alive = self._target_alive()
-        else:
-            self._logger.error("No monitor could restart the target")
-
-        return restarted and is_alive
+    # def _restart_target(self) -> bool:
+    #    """Restart the target system and check its liveness.
+    #
+    #    This function attempts to restart the target system using the available monitors. After
+    #    restarting, it waits for a specified amount of time to allow the system to settle and
+    #    finally it checks the liveness of the target system using the monitors.
+    #
+    #    Returns:
+    #        bool: `True` if the target system was successfully restarted and is alive, `False`
+    #            otherwise.
+    #    """
+    #
+    #    self._logger.info("Restarting target")
+    #    restarted = False
+    #    for monitor in self.monitors:
+    #        if monitor.restart_target():
+    #            self._logger.info(
+    #                "Giving the process %s seconds to settle in", self.target_restart_timeout)
+    #            time.sleep(self.target_restart_timeout)
+    #            restarted = True
+    #            break
+    #
+    #    is_alive = False
+    #    if restarted:
+    #        is_alive = self._target_alive()
+    #    else:
+    #        self._logger.error("No monitor could restart the target")
+    #
+    #    return restarted and is_alive
 
     def run(self) -> bool:
         """Start to fuzz the protocol specified.
@@ -269,6 +273,8 @@ class Engine:
         self._num_cases_actually_fuzzed = 0
 
         result = self._fuzz_protocol()
+
+        self.agent.on_shutdown()
 
         self.end_time = time.time()
         return result
@@ -323,7 +329,9 @@ class Engine:
         # first we generate the mutations only
         try:
             self._fuzz_single_epoch(path, generate_only=True)
-        except (TestCaseExecutionError, TargetAvailabilityError) as e:
+        except FuzzingEngineError as e:
+            if self._current_epoch is None:
+                self.agent.on_shutdown()
             self._logger.error(
                 "Error while generating the mutations: %s", str(e))
             return False
@@ -331,7 +339,9 @@ class Engine:
         # then we apply the mutations
         try:
             self._fuzz_single_epoch(path)
-        except (TestCaseExecutionError, TargetAvailabilityError) as e:
+        except FuzzingEngineError as e:
+            if self._current_epoch is None:
+                self.agent.on_shutdown()
             self._logger.error("Error while executing the epoch: %s", str(e))
             return False
 
@@ -339,6 +349,7 @@ class Engine:
             self._logger.info("Epoch #%s terminated for reason: %s",
                               self._current_epoch, self._epoch_stop_reason)
         else:
+            self.agent.on_shutdown()
             self._logger.info("Epoch terminated for reason: %s",
                               self._epoch_stop_reason)
 
@@ -353,7 +364,7 @@ class Engine:
             applied.
 
         Raises:
-            TargetAvailabilityError: If the target system is not alive and could not be restarted.
+            UnrecoverableAgentError: If any unrecoverable error occurs.
             TestCaseExecutionError: If at least one test case was not completed due to an execution
                 error.
         """
@@ -394,27 +405,8 @@ class Engine:
             part_of_epoch: Whether the test case is part of an epoch or not.
 
         Raises:
-            TargetAvailabilityError: If the target system is not alive and could not be restarted.
             TestCaseSetupError: If the test setup was not completed.
         """
-
-        # check that the target system is alive before starting to fuzz
-        target_ok = False
-        attempts = 0
-        while not target_ok:
-            if attempts > self.max_attempts_of_target_restart:
-                self._logger.error(
-                    "Failed to start the target after %s attempts", attempts)
-                break
-
-            target_ok = self._target_alive()
-            if not target_ok:
-                target_ok = self._restart_target()
-
-            attempts += 1
-
-        if not target_ok:
-            raise TargetAvailabilityError()
 
         self._test_case_stop_reason = None
 
@@ -474,17 +466,21 @@ class Engine:
                 applied.
 
         Raises:
-            TargetAvailabilityError: If the target system is not alive and could not be restarted.
+            UnrecoverableAgentError: If any unrecoverable error occurs.
             TestCaseExecutionError: If the test case was not completed due to an execution error.
         """
 
         part_of_epoch = self._epoch_cases_fuzzed is not None
 
         try:
+            self.agent.on_test_start(str(path))
             self._test_case_setup(part_of_epoch)
+        except AgentError as e:
+            self._test_case_teardown(False, part_of_epoch)
+            raise UnrecoverableAgentError(str(e)) from e
         except TestCaseSetupError as e:
             self._test_case_teardown(False, part_of_epoch)
-            raise TestCaseExecutionError("test setup failed: " + str(e)) from e
+            raise TestCaseExecutionError(str(e)) from e
 
         timestamp_last_message_sent = time.time()
         test_case_stop = False
@@ -555,9 +551,9 @@ class Engine:
                     self._test_case_teardown(False, part_of_epoch)
                     raise TestCaseExecutionError(
                         "message sending error: " + str(e)) from e
-                else:
-                    timestamp_last_message_sent = time.time()
-                    continue
+
+                timestamp_last_message_sent = time.time()
+                continue
 
             # from now on, the message is assumed to be from the source
 
@@ -615,30 +611,36 @@ class Engine:
             else:
                 timestamp_last_message_sent = time.time()
 
-            if not to_be_fuzzed:
-                continue
+            test_case_stop = not to_be_fuzzed
 
-            # if the message was fuzzed, monitor the target and see if it is still alive
-            for monitor in self.monitors:
-                self._logger.debug(
-                    "Checking target with monitor %s", type(monitor))
+            try:
+                if self.agent.redo_test():
+                    return self._fuzz_single_test_case(path, mutation, generate_only)
 
-                # if the target is not alive, we have a result
-                if not monitor.is_target_alive():
+                if self.agent.fault_detected():
+                    self._logger.info("Fault detected")
+                    self._test_case_stop_reason = "Fault detected"
 
-                    # TODO: handle new result (write to file, log, restart target)
+                    data = self.agent.get_data()
 
-                    test_case_stop = True
-                    self._test_case_stop_reason = "Target is not alive"
+                    # TODO: write the data somewhere
 
                     if part_of_epoch and self.stop_on_find:
                         self._epoch_stop = True
 
-                    self._logger.debug("Target is not alive")
                     self._logger.debug("Stopping epoch: %s", self._epoch_stop)
-                    break
+                else:
+                    self._test_case_stop_reason = "Test case completed"
+            except AgentError as e:
+                self._test_case_teardown(False, part_of_epoch)
+                raise UnrecoverableAgentError(str(e)) from e
 
         self._test_case_teardown(True, part_of_epoch)
+
+        try:
+            self.agent.on_test_end()
+        except AgentError as e:
+            raise UnrecoverableAgentError(str(e)) from e
 
     def _generate_mutations(self, data: Message) -> List[Tuple[Mutation, str]]:
         """Generates a list of mutations for the given data.
@@ -694,7 +696,13 @@ class Engine:
                              mutator_state,
                              mutated_field),
                     mutated_entity_qualified_name)
-        self._fuzz_single_test_case(path, mutation)
+
+        try:
+            self._fuzz_single_test_case(path, mutation)
+        except FuzzingEngineError as e:
+            self._logger.error(str(e))
+
+        self.agent.on_shutdown()
 
 
 __all__ = ['Engine']

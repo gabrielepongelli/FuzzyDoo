@@ -63,6 +63,9 @@ class Message(Node, Fuzzable):
     def parent(self) -> Fuzzable | None:
         return None
 
+    def __str__(self) -> str:
+        return self.name
+
     @abstractmethod
     def parse(self, data: bytes):
         """Parse the data into the message content.
