@@ -29,6 +29,11 @@ clean:
 run:
 	poetry run python main.py
 
+# generate the documentation
+docs:
+	poetry install --with docs
+	pdoc -d google $(PROJECT_NAME)
+
 # help command to list available commands
 help:
 	@echo "Available make commands:"
@@ -37,4 +42,5 @@ help:
 	@echo "  make generate-grpc - Generate gRPC files from .proto files"
 	@echo "  make clean         - Clean generated gRPC files"
 	@echo "  make run           - Run the application"
+	@echo "  make docs          - Generate the documentation"
 
