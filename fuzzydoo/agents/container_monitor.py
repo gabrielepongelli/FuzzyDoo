@@ -8,6 +8,7 @@ from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 class ContainerMonitorAgent(GrpcClientAgent):
     """Monitor that checks whether a docker container is running or not."""
 
+    # pylint: disable=useless-parent-delegation
     def set_options(self, **kwargs):
         """Set options for the agent.
 
@@ -21,6 +22,7 @@ class ContainerMonitorAgent(GrpcClientAgent):
             AgentError: If some error occurred at the agent side. In this case the method 
                 `stop_execution` is called.
         """
+        super().set_options(**kwargs)
 
     def on_test_start(self, path: str):
         return
@@ -56,9 +58,9 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
         self._container_name: str | None = kwargs.get('container_name', None)
 
     def set_options(self, **kwargs):
-        self._container_name = kwargs.get(
-            'container_name', self._container_name)
-        logging.info('Set %s = %s', 'container_name', self._container_name)
+        if 'container_name' in kwargs:
+            self._container_name = kwargs['container_name']
+            logging.info('Set %s = %s', 'container_name', self._container_name)
 
     def fault_detected(self) -> bool:
         if self._container_name is None:
@@ -69,15 +71,12 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
             result = subprocess.run(
                 ["docker", "inspect", "--format",
                     "{{.State.Running}}", self._container_name],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
             )
-        except Exception as e:
-            logging.error(str(e).strip())
-            raise AgentError(str(e)) from e
-
-        if result.returncode != 0:
-            logging.error(result.stderr.strip())
-            raise AgentError(result.stderr)
+        except subprocess.CalledProcessError as e:
+            err_msg = str(e.stderr).strip()
+            logging.error(err_msg)
+            raise AgentError(err_msg) from e
 
         is_running = result.stdout.strip()
         if is_running == "true":
