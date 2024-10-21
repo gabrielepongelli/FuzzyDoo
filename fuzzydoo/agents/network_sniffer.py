@@ -166,18 +166,19 @@ def main():
     import argparse
     import sys
 
+    parser = argparse.ArgumentParser(
+        description='Agent that sniff packets on the machine.')
+    parser.add_argument('--ip', type=str, help='IP address to listen on')
+    parser.add_argument('--port', type=int, help='Port to listen on')
+
+    args = parser.parse_args()
+
     if os.geteuid() != 0:
         sys.stderr.write(
             "You need root permissions to run this script. To solve this problem execute this script like this:\n\n")
         sys.stderr.write("\tsudo $(which pcap-logger)\n\n")
         sys.exit(1)
 
-    parser = argparse.ArgumentParser(
-        description='Agent that checks if a container is running.')
-    parser.add_argument('--ip', type=str, help='IP address to listen on')
-    parser.add_argument('--port', type=int, help='Port to listen on')
-
-    args = parser.parse_args()
     if not args.ip or not args.port:
         sys.stderr.write("Error: No IP address and port specified\n")
         sys.exit(1)
