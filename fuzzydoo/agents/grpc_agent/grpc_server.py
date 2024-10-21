@@ -198,6 +198,9 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
                 status=agent_pb2.ResponseMessage.Status.ERROR,
                 error=str(e))
 
+        # wait for the completion of this method for maximum 10 seconds
+        self.server.stop(10)
+
         # pylint: disable=no-member
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
 
@@ -214,8 +217,5 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         else:
             response = agent_pb2.ResponseMessage(  # pylint: disable=no-member
                 status=agent_pb2.ResponseMessage.Status.OK, flag=res)  # pylint: disable=no-member
-
-        # wait for the completion of this method for maximum 10 seconds
-        self.server.stop(10)
 
         return response

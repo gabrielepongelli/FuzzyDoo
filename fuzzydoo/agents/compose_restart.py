@@ -132,7 +132,7 @@ def main():
     import sys
 
     parser = argparse.ArgumentParser(
-        description='Agent that checks if a container is running.')
+        description='Agent that restarts all the docker containers in a docker compose setup.')
     parser.add_argument('--ip', type=str, help='IP address to listen on')
     parser.add_argument('--port', type=int, help='Port to listen on')
 
