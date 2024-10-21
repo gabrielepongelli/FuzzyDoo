@@ -25,3 +25,4 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 container_monitor = 'fuzzydoo.agents.container_monitor:main'
+compose_restart = 'fuzzydoo.agents.compose_restart:main'
