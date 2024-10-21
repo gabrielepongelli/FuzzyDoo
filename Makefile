@@ -15,15 +15,19 @@ install-deps:
 # generate gRPC files from .proto definitions
 generate-grpc: $(PROTO_FILES)
 	mkdir -p $(GENERATED_DIR)
+	touch $(GENERATED_DIR)/__init__.py
 	poetry run python -m grpc_tools.protoc \
 		-I=$(PROTO_DIR) \
 		--python_out=$(GENERATED_DIR) \
 		--grpc_python_out=$(GENERATED_DIR) \
 		$(PROTO_FILES)
+	find $(GENERATED_DIR) -name '*.py' -exec sed -i \
+		-e 's/^import \(.*_pb2\)/from . import \1/' {} \;
 
 # clean generated gRPC python files
 clean:
 	rm -rf $(GENERATED_DIR)
+	poetry uninstall
 
 # run the application
 run:

@@ -5,7 +5,6 @@ description = "A Mutation-Based Structure-Aware Fuzzer for 5G Core Networks"
 authors = ["Gabriele Pongelli <pongelligabriele@gmail.com>"]
 readme = "README.md"
 license = "MIT"
-package-mode = false
 
 [tool.poetry.group.docs]
 optional = true
@@ -23,3 +22,6 @@ pdoc = "^14.7.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+container_monitor = 'fuzzydoo.agents.container_monitor:main'

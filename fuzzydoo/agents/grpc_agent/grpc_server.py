@@ -1,3 +1,4 @@
+import logging
 import pickle
 from concurrent.futures import ThreadPoolExecutor
 
@@ -27,8 +28,11 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
                 'port': A number representing the port the gRPC server should listen on.
         """
 
-        super(agent_pb2_grpc.AgentServiceServicer).__init__()
-        super(Agent).__init__(name, **kwargs)
+        super().__init__(name)
+        super(agent_pb2_grpc.AgentServiceServicer, self).__init__()
+
+        logging.debug("address = %s", kwargs['address'])
+        logging.debug("port = %s", kwargs['port'])
 
         self._address: str = kwargs['address']
         self._port: int = kwargs['port']
@@ -59,7 +63,10 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         gracefully.
         """
 
+        logging.info('Starting gRPC server at %s:%s',
+                     self._address, self._port)
         self.server.start()
+        logging.info('Started')
 
         try:
             self.server.wait_for_termination()
@@ -70,8 +77,11 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
                 pass
 
             self.server.stop(grace=0)
+            logging.info('Shutting down')
 
     def setOptions(self, request, context):
+        logging.debug('setOptions')
+
         options = {}
         for opt in request.options:
             options[opt.name] = pickle.loads(opt.value)
@@ -88,6 +98,8 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
 
     def onTestStart(self, request, context):
+        logging.debug('onTestStart')
+
         try:
             self.on_test_start(request.path)
         except AgentError as e:
@@ -100,6 +112,8 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
 
     def onTestEnd(self, request, context):
+        logging.debug('onTestEnd')
+
         try:
             self.on_test_end()
         except AgentError as e:
@@ -112,6 +126,8 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
 
     def getData(self, request, context):
+        logging.debug('getData')
+
         try:
             res = self.get_data()
         except AgentError as e:
@@ -130,6 +146,8 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, data=data)
 
     def redoTest(self, request, context):
+        logging.debug('redoTest')
+
         try:
             res = self.redo_test()
         except AgentError as e:
@@ -142,6 +160,8 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, flag=res)
 
     def faultDetected(self, request, context):
+        logging.debug('faultDetected')
+
         try:
             res = self.fault_detected()
         except AgentError as e:
@@ -154,6 +174,8 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, flag=res)
 
     def onFault(self, request, context):
+        logging.debug('onFault')
+
         try:
             self.on_fault()
         except AgentError as e:
@@ -166,6 +188,8 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
 
     def onShutdown(self, request, context):
+        logging.debug('onShutdown')
+
         try:
             self.on_shutdown()
         except AgentError as e:
@@ -178,6 +202,8 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
 
     def stopExecution(self, request, context):
+        logging.debug('stopExecution')
+
         try:
             res = self.stop_execution()
         except AgentError as e:
