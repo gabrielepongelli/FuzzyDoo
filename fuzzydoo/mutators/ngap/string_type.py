@@ -242,7 +242,7 @@ CHAR_RANGES = {
 
 TOTAL_CHARS = {
     'ascii': sum(end - start + 1 for start, end in CHAR_RANGES['ascii']),
-    'utf8': sum(end - start + 1 for start, end in CHAR_RANGES['utf_8']),
+    'utf8': sum(end - start + 1 for start, end in CHAR_RANGES['utf8']),
     'utf_16_be': sum(end - start + 1 for start, end in CHAR_RANGES['utf_16_be']),
     'utf_32_be': sum(end - start + 1 for start, end in CHAR_RANGES['utf_32_be']),
     'iso2022_jp_2004': sum(end - start + 1 for start, end in CHAR_RANGES['iso2022_jp_2004'])

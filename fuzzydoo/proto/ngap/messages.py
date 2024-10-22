@@ -1,4 +1,4 @@
-from typing import Any, List, Tuple, Type
+from typing import Any, Type
 
 import pycrate_asn1dir.NGAP as ngap
 from pycrate_core.utils import PycrateErr
