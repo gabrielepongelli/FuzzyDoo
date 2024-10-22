@@ -255,7 +255,10 @@ class AgentMultiplexer:
         skip = False
         for agent in self._agents:
             try:
-                skip = skip or agent.skip_epoch(path)
+                new_skip = agent.skip_epoch(path)
+                self._logger.debug('Agent %s: skip = %s',
+                                   agent.name, 'yes' if new_skip else 'no')
+                skip = skip or new_skip
             except AgentError as e:
                 self._handle_error(agent, e)
 
@@ -276,7 +279,10 @@ class AgentMultiplexer:
         redo = False
         for agent in self._agents:
             try:
-                redo = redo or agent.redo_test()
+                new_redo = agent.redo_test()
+                self._logger.debug('Agent %s: redo = %s',
+                                   agent.name, 'yes' if new_redo else 'no')
+                redo = redo or new_redo
             except AgentError as e:
                 self._handle_error(agent, e)
 
@@ -297,7 +303,10 @@ class AgentMultiplexer:
         fault = False
         for agent in self._agents:
             try:
-                fault = fault or agent.fault_detected()
+                new_fault = agent.fault_detected()
+                self._logger.debug('Agent %s: fault = %s',
+                                   agent.name, 'yes' if new_fault else 'no')
+                fault = fault or new_fault
             except AgentError as e:
                 self._handle_error(agent, e)
 
