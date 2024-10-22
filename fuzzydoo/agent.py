@@ -79,6 +79,21 @@ class Agent:
 
         return []
 
+    def skip_epoch(self, path: str) -> bool:
+        """Should the current epoch be skipped.
+
+        This method should be called before `on_test_start`.
+
+        Args:
+            path: The path of the epoch on which test cases will be run on.
+
+        Raises:
+            AgentError: If some error occurred at the agent side. In this case the method 
+                `stop_execution` is called.
+        """
+
+        return False
+
     def redo_test(self) -> bool:
         """Should the current test be re-performed.
 
@@ -222,6 +237,30 @@ class AgentMultiplexer:
 
         return data
 
+    def skip_epoch(self, path: str) -> bool:
+        """Executes `skip_epoch` for each agent in the multiplexer.
+
+        Args:
+            path: The path of the epoch on which test cases will be run on.
+
+        Returns:
+            bool: `True` if at least one agent signaled to skip the epoch.
+
+        Raises:
+            AgentError: If any of the agents wants to stop the execution.
+        """
+
+        self._logger.debug('Skip test')
+
+        skip = False
+        for agent in self._agents:
+            try:
+                skip = skip or agent.skip_epoch(path)
+            except AgentError as e:
+                self._handle_error(agent, e)
+
+        return skip
+
     def redo_test(self) -> bool:
         """Executes `redo_test` for each agent in the multiplexer.
 
@@ -237,7 +276,7 @@ class AgentMultiplexer:
         redo = False
         for agent in self._agents:
             try:
-                redo = redo or agent.get_data()
+                redo = redo or agent.redo_test()
             except AgentError as e:
                 self._handle_error(agent, e)
 
@@ -258,7 +297,7 @@ class AgentMultiplexer:
         fault = False
         for agent in self._agents:
             try:
-                fault = fault or agent.get_data()
+                fault = fault or agent.fault_detected()
             except AgentError as e:
                 self._handle_error(agent, e)
 

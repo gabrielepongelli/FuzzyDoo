@@ -256,6 +256,8 @@ class Engine:
             if not res:
                 break
 
+        self.agent.on_shutdown()
+
         self._logger.info("Fuzzing of protocol %s ended", self.protocol.name)
         self._current_epoch = None
 
@@ -271,6 +273,20 @@ class Engine:
         Returns:
             bool: `True` if the epoch is completed without errors, `False` otherwise.
         """
+
+        try:
+            skipped = self.agent.skip_epoch(str(path))
+        except AgentError as e:
+            self._logger.error(str(e))
+            if self._current_epoch is None:
+                self.agent.on_shutdown()
+            return False
+
+        if skipped:
+            self._logger.info("Epoch skipped by agents")
+            if self._current_epoch is None:
+                self.agent.on_shutdown()
+            return False
 
         if self._current_epoch is not None:
             self._current_epoch += 1
@@ -646,6 +662,19 @@ class Engine:
 
         # pylint: disable=import-outside-toplevel
         from pydoc import locate
+
+        try:
+            skipped = self.agent.skip_epoch(str(path))
+        except AgentError as e:
+            self._logger.error(str(e))
+            self.agent.on_shutdown()
+            return
+
+        if skipped:
+            self._logger.info("Test skipped by agents due to skipped epoch")
+            self.agent.on_shutdown()
+            return
+
         mutation = (Mutation(locate(mutation_type),
                              mutator_state,
                              mutated_field),

@@ -76,6 +76,9 @@ class NetworkSnifferAgent(GrpcClientAgent):
         """
         super().set_options(**kwargs)
 
+    def skip_epoch(self, path: str) -> bool:
+        return False
+
     def redo_test(self) -> bool:
         return False
 

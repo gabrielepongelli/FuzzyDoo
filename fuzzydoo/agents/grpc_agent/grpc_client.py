@@ -99,6 +99,28 @@ class GrpcClientAgent(Agent):
             res.append((record.name, record.content))
         return res
 
+    def skip_epoch(self, path: str) -> bool:
+        # pylint: disable=no-member
+        info = agent_pb2.EpochInfoMessage(path=path)
+
+        try:
+            # pylint: disable=no-member
+            response = self._stub.skipEpoch(info)
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
+
+        if not response.HasField('flag'):
+            return AgentError("Unknown result")
+
+        return response.flag
+
     def redo_test(self) -> bool:
         try:
             # pylint: disable=no-member

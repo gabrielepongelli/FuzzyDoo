@@ -5,6 +5,7 @@ service AgentService {
   rpc onTestStart(TestInfoMessage) returns (ResponseMessage) {}
   rpc onTestEnd(EmptyMessage) returns (ResponseMessage) {}
   rpc getData(EmptyMessage) returns (ResponseMessage) {}
+  rpc skipEpoch(EpochInfoMessage) returns (ResponseMessage) {}
   rpc redoTest(EmptyMessage) returns (ResponseMessage) {}
   rpc faultDetected(EmptyMessage) returns (ResponseMessage) {}
   rpc onFault(EmptyMessage) returns (ResponseMessage) {}
@@ -15,6 +16,8 @@ service AgentService {
 message EmptyMessage {}
 
 message TestInfoMessage { string path = 1; }
+
+message EpochInfoMessage { string path = 1; }
 
 message OptionsMessage {
   message Option {

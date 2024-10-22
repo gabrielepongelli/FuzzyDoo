@@ -33,6 +33,9 @@ class ContainerMonitorAgent(GrpcClientAgent):
     def get_data(self) -> list[tuple[str, bytes]]:
         return []
 
+    def skip_epoch(self, path: str) -> bool:
+        return False
+
     def redo_test(self) -> bool:
         return False
 
