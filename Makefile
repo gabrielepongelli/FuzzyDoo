@@ -27,7 +27,6 @@ generate-grpc: $(PROTO_FILES)
 # clean generated gRPC python files
 clean:
 	rm -rf $(GENERATED_DIR)
-	poetry uninstall
 
 # run the application
 run:
