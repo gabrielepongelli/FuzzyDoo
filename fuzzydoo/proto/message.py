@@ -1,9 +1,8 @@
 from abc import abstractmethod
 from typing import Any
 
-from ..fuzzable import Fuzzable
+from ..mutator import Fuzzable
 from ..mutator import mutable
-from ..utils.graph import Node
 from ..utils.errs import FuzzyDooError
 
 
@@ -16,11 +15,11 @@ class MessageParsingError(MessageError):
 
 
 @mutable
-class Message(Node, Fuzzable):
+class Message(Fuzzable):
     """Entity which represents a message in a communication protocol.
 
-    A `Message` is a node of the protocol graph that can be either sent to or received by the 
-    target. A `Message` is also a `Fuzzable` entity with the property that it has no parent.
+    A `Message` is the content of the nodes of the protocol graph. It is also a `Fuzzable` entity 
+    with the property that it has no parent.
 
     Attributes:
         delay: The number of seconds to wait before sending the message.
@@ -38,12 +37,10 @@ class Message(Node, Fuzzable):
             n_replay (optional): The number of copies of this message to send. Defaults to `1`.
         """
 
-        # IDs will be managed by the Protocol
-        super(Node).__init__()
-
         # assign the class name as the default name for the node
         self._name: str = name if name else self.__class__.__name__
-        self._content: Fuzzable | None = content
+
+        self._content: Any | None = content
         self.delay: int = delay
         self.n_replay: int = n_replay
 

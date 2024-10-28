@@ -550,8 +550,8 @@ class Engine:
 
                 self._logger.debug("Applying mutation")
                 mutated_data = mutation[0].apply(
-                    msg.get_content_by_path(mutation[1]))
-                msg.set_content_by_path(mutation[1], mutated_data)
+                    msg.get_content(mutation[1]))
+                msg.set_content(mutation[1], mutated_data)
                 data = msg.raw()
                 self._logger.debug("Mutated data %s", data)
 
@@ -633,7 +633,7 @@ class Engine:
         mutations = []
         while True:
             mutator, fuzzable_path = self._epoch_random.choice(mutators)
-            mutation = mutator.mutate(data.get_content_by_path(fuzzable_path))
+            mutation = mutator.mutate(data.get_content(fuzzable_path))
             if mutation not in mutations:
                 mutations.append((mutation, fuzzable_path))
 

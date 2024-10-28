@@ -1,11 +1,11 @@
-from typing import Any, Type
+from collections.abc import Callable
+from typing import Any, Type, cast
 
 import pycrate_asn1dir.NGAP as ngap
 from pycrate_core.utils import PycrateErr
 from pycrate_asn1rt.asnobj import ASN1Obj
 
-from ...fuzzable import Fuzzable, PathFormatError, ContentNotFoundError
-from ...mutator import Mutator, mutable
+from ...mutator import Fuzzable, QualifiedNameFormatError, ContentNotFoundError, Mutator, mutable
 from ..message import Message, MessageParsingError
 from .types import EnumType, IntType, map_type
 
@@ -40,13 +40,13 @@ class NGAPMessage(Message):
     def procedure_code(self) -> IntType:
         """The procedure code of this NGAP message."""
 
-        return self.get_content_by_path(self.name+'.procedureCode')
+        return self.get_content(self.name+'.procedureCode')
 
     @property
     def criticality(self) -> EnumType:
         """The criticality level of this NGAP message."""
 
-        return self.get_content_by_path(self.name+'.criticality')
+        return self.get_content(self.name+'.criticality')
 
     @property
     def content(self) -> Any | None:
@@ -55,7 +55,8 @@ class NGAPMessage(Message):
     def parse(self, data: bytes):
         ngap_pdu = ngap.NGAP_PDU_Descriptions.NGAP_PDU
         try:
-            ngap_pdu.from_aper(data)
+            from_aper = cast(Callable[[Any], None], ngap_pdu.from_aper)
+            from_aper(data)
         except PycrateErr as e:
             raise MessageParsingError(
                 f"Failed to parse NGAP message: {e}") from e
@@ -105,13 +106,13 @@ class NGAPMessage(Message):
         full_path += path
         return full_path
 
-    def get_content_by_path(self, path: str) -> Fuzzable:
+    def get_content(self, qname: str) -> Fuzzable:
         # needed because `get_at` doesn't work with strings represening numbers
-        parts = [int(p) if p.isdecimal() else p for p in path.split(".")]
+        parts = [int(p) if p.isdecimal() else p for p in qname.split(".")]
 
         if parts[0] != self.name:
-            raise PathFormatError(
-                f"Root entity '{self.name}' does not match path '{path}'")
+            raise QualifiedNameFormatError(
+                f"Root entity '{self.name}' does not match path '{qname}'")
 
         if len(parts) == 1:
             return self
@@ -126,15 +127,15 @@ class NGAPMessage(Message):
             return getattr(self, parts[1])
 
         raise ContentNotFoundError(f"No content at the path \
-                                    '{path}' exists in the message")
+                                    '{qname}' exists in the message")
 
-    def set_content_by_path(self, path: str, value: Any):
+    def set_content(self, qname: str, value: Any):
         # needed because `get_at` doesn't work with strings represening numbers
-        parts = [int(p) if p.isdecimal() else p for p in path.split(".")]
+        parts = [int(p) if p.isdecimal() else p for p in qname.split(".")]
 
         if parts[0] != self.name:
-            raise PathFormatError(
-                f"Root entity '{self.name}' does not match path '{path}'")
+            raise QualifiedNameFormatError(
+                f"Root entity '{self.name}' does not match path '{qname}'")
 
         if len(parts) == 1:
             return
@@ -148,7 +149,7 @@ class NGAPMessage(Message):
             setattr(self, parts[1], value)
         else:
             raise ContentNotFoundError(f"No content at the path \
-                                       '{path}' exists in the message")
+                                       '{qname}' exists in the message")
 
     def mutators(self) -> list[tuple[Type[Mutator], str]]:
         """Get all the mutators associated with this fuzzable entity.
@@ -164,13 +165,13 @@ class NGAPMessage(Message):
         res = super().mutators()
         for path in self._leaf_paths:
             redacted = [str(p) for p in self._redact_path(path)]
-            leaf = self.get_content_by_path(
+            leaf = self.get_content(
                 self.name + '.' + ".".join(redacted))
             res += leaf.mutators()
         return res
 
 
-__all__ = []
+__all__ = ['NGAPMessage']
 
 # dinamically create all the message classes, one for each NGAP message
 
@@ -193,7 +194,7 @@ for message_type in ngap.NGAP_PDU_Descriptions.NGAP_PDU._cont_tags.values():
         if k is None:
             continue
 
-        def make_init(msg_type: str, body_type: str):
+        def make_init(msg_type: str, body_type: str) -> Callable[[Any, int, int], None]:
             content = ngap.NGAP_PDU_Descriptions.NGAP_PDU
             msg_type = msg_type[0].lower() + msg_type[1:]
 

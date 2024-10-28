@@ -1,11 +1,11 @@
-from typing import Type, Any
+from collections.abc import Callable
+from typing import Type, Any, override, TypeVar
 
 from pycrate_asn1rt.asnobj import ASN1Obj
 import pycrate_asn1rt.asnobj_basic as basic
 import pycrate_asn1rt.asnobj_str as string
 
-from ...fuzzable import Fuzzable, PathFormatError, ContentNotFoundError
-from ...mutator import mutable
+from ...mutator import Fuzzable, QualifiedNameFormatError, ContentNotFoundError, mutable
 
 
 class ASN1Type(Fuzzable):
@@ -33,6 +33,7 @@ class ASN1Type(Fuzzable):
         self._path: list[str] = [str(p) for p in path]
         self._parent = parent
 
+    @override
     @property
     def value(self):
         """The value represented by this ASN.1 type."""
@@ -48,23 +49,27 @@ class ASN1Type(Fuzzable):
         # we need this to update the value globally, otherwise if we then convert the message to
         # raw bytes, the changes won't be reflected
         if self._parent is not None:
-            path = self._parent.name + "." + ".".join(self._path)
-            self._parent.set_content_by_path(path, self)
+            qname = self._parent.name + "." + ".".join(self._path)
+            self._parent.set_content(qname, self)
 
+    @override
     @property
     def constraints(self) -> dict:
         """The constraints of this ASN.1 type."""
 
         return self._content.get_const()
 
+    @override
     @property
     def name(self) -> str:
         return self._path[-1]
 
+    @override
     @property
     def parent(self) -> Fuzzable:
         return self._parent
 
+    @override
     @property
     def qualified_name(self) -> str:
         if self.parent is None:
@@ -72,37 +77,42 @@ class ASN1Type(Fuzzable):
 
         return self.parent.qualified_name + "." + ".".join(self._path)
 
-    def get_content_by_path(self, path):
-        parts = path.split(".")
+    @override
+    def get_content(self, qname: str):
+        parts = qname.split(".")
 
         if parts[0] != self.name:
-            raise PathFormatError(
-                f"Root entity '{self.name}' does not match path '{path}'")
+            raise QualifiedNameFormatError(
+                f"Root entity '{self.name}' does not match path '{qname}'")
 
         if len(parts) == 1:
             return self.value
 
         raise ContentNotFoundError(f"No content at the path \
-                                    '{path}' exists in this type")
+                                    '{qname}' exists in this type")
 
-    def set_content_by_path(self, path: str, value: Any):
-        parts = path.split(".")
+    @override
+    def set_content(self, qname: str, value: Any):
+        parts = qname.split(".")
 
         if parts[0] != self.name:
-            raise PathFormatError(
-                f"Root entity '{self.name}' does not match path '{path}'")
+            raise QualifiedNameFormatError(
+                f"Root entity '{self.name}' does not match path '{qname}'")
 
         if len(parts) == 1:
             self.value = value
         else:
             raise ContentNotFoundError(f"No content at the path \
-                                    '{path}' exists in this type")
+                                    '{qname}' exists in this type")
 
 
 _MAPPING: dict[Type[ASN1Obj]: Type[ASN1Type]] = {}
 
 
-def mapped(base: Type[ASN1Obj]):
+MappedT = TypeVar('MappedT', bound=ASN1Type)
+
+
+def mapped(base: Type[ASN1Obj]) -> Callable[[MappedT], MappedT]:
     """Decorator that marks a class as wrapper of a `ASN1Obj` subtype.
 
     Args:
@@ -114,7 +124,7 @@ def mapped(base: Type[ASN1Obj]):
         >>>     pass
     """
 
-    def decorator(cls):
+    def decorator(cls: MappedT) -> MappedT:
         _MAPPING[base] = cls
         return cls
 
@@ -145,6 +155,7 @@ class NullType(ASN1Type):
     ASN.1 basic type NULL object. It has only one possible value, which is `int(0)`.
     """
 
+    @override
     @property
     def fuzzable(self) -> bool:
         return False

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar, Generic
 
 
 @dataclass
@@ -16,8 +16,11 @@ class Node:
         return isinstance(value, Node) and value.id == self.id
 
 
+NodeT = TypeVar('NodeT', bound=Node)
+
+
 @dataclass
-class Edge:
+class Edge(Generic[NodeT]):
     """This class represents an edge in a graph data structure.
 
     This class represents an edge that connects the node `src` to the node `dst`.
@@ -27,6 +30,10 @@ class Edge:
         src: The source node of the edge.
         dst: The destination node of the edge.
     """
+
+    id: int
+    src: NodeT
+    dst: NodeT
 
     @classmethod
     def calculate_id(cls, src: int, dst: int) -> int:
@@ -44,7 +51,7 @@ class Edge:
 
         return (src << 32) + dst
 
-    def __init__(self, src: Node, dst: Node):
+    def __init__(self, src: NodeT, dst: NodeT):
         """Initialize an instance of the Edge class.
 
         This constructor takes two parameters, `src` and `dst`, which represent 
@@ -58,11 +65,17 @@ class Edge:
         """
 
         self.id: int = self.calculate_id(src.id, dst.id)
-        self.src: Node = src
-        self.dst: Node = dst
+        self.src: NodeT = src
+        self.dst: NodeT = dst
+
+    def __eq__(self, value: object) -> bool:
+        return isinstance(value, Edge[NodeT]) and value.id == self.id
 
 
-class Path:
+EdgeT = TypeVar('EdgeT', bound=Edge)
+
+
+class Path(Generic[NodeT, EdgeT]):
     """This class represents a path in a graph data structure.
 
     The `Path` class is a collection of edges that connect nodes in a specific 
@@ -72,23 +85,16 @@ class Path:
 
     Attributes:
         path: A list of edges that make up the path.
-        start: The starting node of the path.
     """
 
-    def __init__(self, path: list[Edge], start: Node | None = None):
+    def __init__(self, path: list[EdgeT]):
         """Initializes a new instance of the Path class.
 
         Args:
             path: A list of edges that make up the path.
-            start: The starting node of the path. If not provided, the starting 
-                node is set to the source node of the first edge in the path.
         """
 
-        self.path: list[Edge] = path
-        self.start: Node = path[0].src if start is None else start
-
-        # keeps track of the current edge in the iteration
-        self._curr: int | None = None
+        self.path: list[EdgeT] = path
 
     def __str__(self) -> str:
         """Returns a string representation of the current path."""
@@ -96,37 +102,11 @@ class Path:
         return '.'.join(str(edge.dst) for edge in self.path)
 
     def __iter__(self):
-        """Returns an iterator for the Path class."""
-
-        for i, edge in enumerate(self.path):
-            if edge.src == self.start:
-                self._curr = i
-
-        if self._curr is None:
-            return None
-
-        return self
-
-    def __next__(self) -> Node | None:
-        """Returns the next node in the path during iteration.
-
-        Returns:
-            Node | None: The next node in the path. If there are no more nodes, 
-                returns `None`.
-        """
-
-        if self._curr is None:
-            return None
-        node = self.path[self._curr].dst
-
-        self._curr += 1
-        if self._curr >= len(self.path):
-            self._curr = None
-
-        return node
+        for edge in self.path:
+            yield edge.dst
 
 
-class Graph:
+class Graph(Generic[NodeT, EdgeT]):
     """This class represents a graph data structure.
 
     The `Graph` class represents a graph data structure, which is a collection 
@@ -178,22 +158,18 @@ class Graph:
         [<__main__.Edge at 0x7f9c80076ca0>]
     """
 
-    def __init__(self, graph_id: int | None = None):
+    def __init__(self):
         """Initialize a new instance of the `Graph` class.
 
         This constructor initializes a new graph with an optional unique 
         identifier. It also initializes empty dictionaries for storing edges 
         and nodes.
-
-        Args:
-            graph_id: The unique identifier for the graph. Defaults to `None`.
         """
 
-        self.id: int = graph_id
-        self.edges: dict[int: Edge] = {}
-        self.nodes: dict[int: Node] = {}
+        self.edges: dict[int: EdgeT] = {}
+        self.nodes: dict[int: NodeT] = {}
 
-    def add_edge(self, edge: Edge):
+    def add_edge(self, edge: EdgeT):
         """Add a new edge to the graph. Ensures a node exists for both the 
         source and destination of the edge.
 
@@ -201,13 +177,13 @@ class Graph:
             edge: New edge to add.
         """
 
-        if self.find_node("id", edge.src) is not None \
-                and self.find_node("id", edge.dst) is not None:
+        if self.find_node("id", edge.src.id) is not None \
+                and self.find_node("id", edge.dst.id) is not None:
             self.edges[edge.id] = edge
 
         return self
 
-    def add_node(self, node: Node):
+    def add_node(self, node: NodeT):
         """Add a new node to the graph. Ensures a node with the same id does 
         not already exist in the graph.
 
@@ -258,31 +234,31 @@ class Graph:
 
         return self
 
-    def edges_from(self, node_id: int) -> list[Edge]:
+    def edges_from(self, node: NodeT) -> list[EdgeT]:
         """Enumerate the edges from the specified node.
 
         Args:
-            node_id: Identifier of the node to enumerate edges from.
+            node: The node to enumerate edges from.
 
         Returns:
             List of edges from the specified node.
         """
 
-        return [edge_value for edge_value in list(self.edges.values()) if edge_value.src == node_id]
+        return [e for e in self.edges.values() if e.src == node]
 
-    def edges_to(self, node_id: int) -> list[Edge]:
+    def edges_to(self, node: NodeT) -> list[EdgeT]:
         """Enumerate the edges to the specified node.
 
         Args:
-            node_id: Identifier of the node to enumerate edges.
+            node: The node to enumerate edges.
 
         Returns:
             List of edges to the specified node.
         """
 
-        return [edge_value for edge_value in list(self.edges.values()) if edge_value.dst == node_id]
+        return [e for e in self.edges.values() if e.dst == node]
 
-    def find_edge(self, attr: str, value: Any) -> Edge | None:
+    def find_edge(self, attr: str, value: Any) -> EdgeT | None:
         """Find and return the edge with the specified `attr` / `value` pair.
 
         Args:
@@ -294,8 +270,8 @@ class Graph:
         """
 
         # if the attribute to search for is the id, simply return the edge from the internal hash.
-        if attr == "id":
-            return self.edges.get(value, default=None)
+        if attr == "id" and value in self.edges.values():
+            return self.edges[value.id]
 
         for edge in list(self.edges.values()):
             if hasattr(edge, attr):
@@ -304,7 +280,7 @@ class Graph:
 
         return None
 
-    def find_node(self, attr: str, value: Any) -> Node | None:
+    def find_node(self, attr: str, value: Any) -> NodeT | None:
         """Find and return the node with the specified `attr` / `value` pair.
 
         Args:
@@ -316,14 +292,13 @@ class Graph:
         """
 
         # if the attribute to search for is the id, simply return the node from the internal hash.
-        if attr == "id" and value in self.nodes:
-            return self.nodes.get(value, default=None)
+        if attr == "id" and value in self.nodes.values():
+            return self.nodes[value.id]
 
         # step through all the nodes looking for the given <attribute,value> pair.
-        else:
-            for node in list(self.nodes.values()):
-                if hasattr(node, attr):
-                    if getattr(node, attr) == value:
-                        return node
+        for node in list(self.nodes.values()):
+            if hasattr(node, attr):
+                if getattr(node, attr) == value:
+                    return node
 
         return None
