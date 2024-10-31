@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, TypeVar, Generic
+from collections.abc import Callable, Iterator
 
 
 @dataclass
@@ -30,10 +31,6 @@ class Edge(Generic[NodeT]):
         src: The source node of the edge.
         dst: The destination node of the edge.
     """
-
-    id: int
-    src: NodeT
-    dst: NodeT
 
     @classmethod
     def calculate_id(cls, src: int, dst: int) -> int:
@@ -97,16 +94,23 @@ class Path(Generic[NodeT, EdgeT]):
         self.path: list[EdgeT] = path
 
     def __str__(self) -> str:
-        """Returns a string representation of the current path."""
-
         return '.'.join(str(edge.dst) for edge in self.path)
 
     def __iter__(self):
         for edge in self.path:
             yield edge.dst
 
+    def __hash__(self):
+        return hash(tuple(edge.id for edge in self.path))
 
-class Graph(Generic[NodeT, EdgeT]):
+    def __eq__(self, other):
+        return isinstance(other, Path) and self.path == other.path
+
+
+PathT = TypeVar('PathT', bound=Path)
+
+
+class Graph(Generic[NodeT, EdgeT, PathT]):
     """This class represents a graph data structure.
 
     The `Graph` class represents a graph data structure, which is a collection 
@@ -302,3 +306,86 @@ class Graph(Generic[NodeT, EdgeT]):
                     return node
 
         return None
+
+    def dfs_traversal(self, start: NodeT,
+                      max_visits: int = 0,
+                      build_path: Callable[[list[EdgeT]],
+                                           PathT] = Path[Node, Edge[Node]],
+                      skip_edge: Callable[[EdgeT], bool] = lambda _: False,
+                      yield_path: Callable[[EdgeT], bool] = lambda _: True,
+                      on_enter: Callable[[list[EdgeT]], None] = lambda _: None,
+                      on_exit: Callable[[list[EdgeT]], None] = lambda _: None) -> Iterator[PathT]:
+        """Perform a depth-first traversal of the graph starting from the given node.
+
+        Args:
+            start: The node from which to start the traversal.
+            max_visits (optional): Maximum times a node can be visited. If it is `0` it means no 
+                limit. Defaults to `0`.
+            build_path (optional): Function that, given a list of edges, builds a `PathT` instance. 
+                Defaults to the constructor of `Path`.
+            skip_edge (optional): Predicate that, given an edge, determine if it has to be skipped. 
+                Defaults to `lambda _: False`.
+            yield_path (optional): Predicate that, given an edge, determine if a path with the 
+                given edge in final position should be yielded. Defaults to `lambda _: True`.
+            on_enter (optional): Callback function called at the beginning of a new iteration, 
+                whose argument is the current list of edges. Defaults to `lambda _: None`.
+            on_exit (optional): Callback function called at the end of a new iteration, whose 
+                argument is the current list of edges. Defaults to `lambda _: None`.
+
+        Yields:
+            PathT: Yields paths whose final node (at least) satisfy `yield_path`.
+        """
+
+        yield from self._dfs_traversal(start, build_path, [], {}, max_visits, yield_path,
+                                       skip_edge, on_enter, on_exit)
+
+    def _dfs_traversal(self, curr: NodeT,
+                       path: list[EdgeT],
+                       visit_count: dict[int, int],
+                       max_visits: int,
+                       build_path: Callable[[list[EdgeT]], PathT],
+                       skip_edge: Callable[[EdgeT], bool],
+                       yield_path: Callable[[EdgeT], bool],
+                       on_enter: Callable[[list[EdgeT]], None],
+                       on_exit: Callable[[list[EdgeT]], None]) -> Iterator[PathT]:
+        """A generic depth-first traversal of the graph with customizable conditions.
+
+        Args:
+            curr: The current node for the traversal.
+            path: A list to hold edges representing the current path.
+            visit_count: Dictionary tracking the visit count of each node.
+            max_visits: Maximum times a node can be visited. If it is `0` it means no limit.
+            build_path: Function that, given a list of edges, builds a `PathT` instance.
+            skip_edge: Predicate that, given an edge, determine if it can be traversed.
+            yield_path: Predicate that, given a node, determine if it meets the target condition.
+            on_enter: Callback function called at the beginning of a new iteration, whose argument 
+                is the current list of edges.
+            on_exit: Callback function called at the end of a new iteration, whose argument is the 
+                current list of edges.
+
+        Yields:
+            PathT: Yields paths whose final node (at least) satisfy `yield_path`.
+        """
+
+        on_enter(path)
+
+        if max_visits and visit_count.get(curr.id, 0) >= max_visits:
+            return
+        visit_count[curr.id] = visit_count.get(curr.id, 0) + 1
+
+        for edge in self.edges_from(curr):
+            if skip_edge(edge):
+                continue
+
+            path.append(edge)
+
+            if yield_path(edge):
+                yield build_path(list(path))
+
+            yield from self._dfs_traversal(edge.dst, path, visit_count, max_visits, build_path,
+                                           skip_edge, yield_path, on_enter, on_exit)
+            path.pop()
+
+        visit_count[curr.id] -= 1
+
+        on_exit(path)

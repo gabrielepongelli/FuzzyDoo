@@ -17,7 +17,12 @@ class InvalidPathError(ProtocolError):
 
 @dataclass
 class ProtocolNode(Node):
-    """A graph node specific for the `Protocol` class.
+    """A graph node specific for the `Protocol` class."""
+
+
+@dataclass
+class MessageNode(Node):
+    """A graph node that contains a message.
 
     Attributes:
         id: The unique identifier for the node.
@@ -73,7 +78,7 @@ class EdgeTag(Flag):
 
 @dataclass
 class ProtocolEdge(Edge[ProtocolNode]):
-    """A graph edge specific for the `Protocol` class.
+    """A graph edge specific for the `Protocol` class .
 
     Attributes:
         id: The unique identifier for the edge.
@@ -84,8 +89,19 @@ class ProtocolEdge(Edge[ProtocolNode]):
 
     tags: EdgeTag
 
+    def __init__(self, src: ProtocolNode, dst: ProtocolNode, tags: EdgeTag):
+        """Initializes a new instance of the `ProtocolEdge` class .
 
-@dataclass
+        Args:
+            src: The source node of the edge.
+            dst: The destination node of the edge.
+            tags: Tags for the edge which describe the relationship between `src` and `dst`.
+        """
+
+        super().__init__(src, dst)
+        self.tags = tags
+
+
 class ProtocolPath(Path[ProtocolNode, ProtocolEdge]):
     """A class representing a path in the protocol graph.
 
@@ -93,46 +109,48 @@ class ProtocolPath(Path[ProtocolNode, ProtocolEdge]):
     to represent paths in the graph of the `Protocol` class taking into account the perspective of
     a specific actor.
 
-    An iteration over this type returns all the messages in the path that are either sent by or
-    received from the actor specified. All the other messages are skipped. The last message of the 
-    path is always sent by the actor specified.
+    An iteration over an instance of this class returns all the messages in the path that are 
+    either sent by or received from the actor specified. All the other messages are skipped. The 
+    last message of the path is always sent by the actor specified.
 
     Attributes:
         path: The list of edges that make up the path.
-        actor: The name of the actor to be used in the path.
+        pos: The position of the edge in `path` whose `dst` node is the current node, or `None` if 
+            the iteration isn't started yet.
+        actor: The name of the actor to be used in the path. If is `None`, then an iteration over 
+            this an instance of this class returns all the nodes in the path regardless of who 
+            sent/received them.
     """
 
-    def __init__(self, path: list[ProtocolEdge], actor: str):
-        """Initializes a new instance of the `ProtocolPath` class.
+    def __init__(self, path: list[ProtocolEdge], actor: str | None = None):
+        """Initializes a new instance of the `ProtocolPath` class .
 
         Args:
             path: A list of edges that make up the path.
-            pos (optional): The position of the edge in `path` whose `dst` node is the current node.
-            actor: The name of the actor to be used.
+            actor (optional): The name of the actor to be used. Defaults to `None`.
         """
 
         super().__init__(path)
 
         self.pos: int | None = None
-        self.actor: str = actor
+        self.actor: str | None = actor
 
     @override
     def __str__(self) -> str:
-        """Returns a string representation of the current path."""
-
         return self.actor + ':' + '.'.join(str(edge.id) for edge in self.path)
 
     @override
-    def __iter__(self):
+    def __iter__(self) -> Iterator[MessageNode]:
         self.pos = 0
         for edge in self.path:
-            if self.actor is None or self.actor in (edge.dst.src, edge.dst.dst):
+            if isinstance(edge.dst, MessageNode) \
+                    and (self.actor is None or self.actor in (edge.dst.src, edge.dst.dst)):
                 yield edge.dst
                 self.pos += 1
         self.pos = None
 
 
-class Protocol(Graph[ProtocolNode, ProtocolEdge]):
+class Protocol(Graph[ProtocolNode, ProtocolEdge, ProtocolPath]):
     """The `Protocol` class represents a communication protocol.
 
     The `Protocol` class represents a communication protocol as a graph, where nodes represent
@@ -160,11 +178,7 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge]):
         super().__init__()
 
         self.name: str = name
-
-        # create a root node in the protocol tree
-        self.root: Node = Node(0)
-        self.add_node(self.root)
-
+        self.root: ProtocolNode = self.create_dummy()
         self.actors: list[str] = []
 
     @override
@@ -184,8 +198,8 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge]):
 
         return self
 
-    def create_node(self, msg: Message, src: str, dst: str) -> ProtocolNode:
-        """Create a new `ProtocolNode` instance correctly initialized.
+    def create_message(self, msg: Message, src: str, dst: str) -> MessageNode:
+        """Create a new `MessageNode` instance correctly initialized.
 
         Args:
             msg: The message contained by the new node.
@@ -193,7 +207,7 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge]):
             dst: The name of the actor that receives `msg`.
 
         Returns:
-            ProtocolNode: The newly created `ProtocolNode` instance.
+            MessageNode: The newly created `MessageNode` instance.
         """
 
         if src not in self.actors:
@@ -202,33 +216,46 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge]):
         if dst not in self.actors:
             self.actors.append(dst)
 
-        node = ProtocolNode(0, src, dst, msg)
+        node = MessageNode(0, src, dst, msg)
+        self.add_node(node)
+        return node
+
+    def create_dummy(self) -> ProtocolNode:
+        """Create a new dummy node.
+
+        This can be useful to create better recursive graphs.
+
+        Returns:
+            ProtocolNode: The newly created dummy node.
+        """
+
+        node = ProtocolNode(0)
         self.add_node(node)
         return node
 
     def connect(self, src: ProtocolNode, dst: ProtocolNode | None = None, tags: EdgeTag = EdgeTag.SEQUENCE):
-        """Create a connection between the two messages of the protocol.
+        """Create a connection between the two nodes of the protocol.
 
-        Creates a connection between the source message and the destination message. The `Protocol`
-        class maintains a top level node that all initial messages must be connected to.
+        Creates a connection between the source node and the destination node. The `Protocol`
+        class maintains a top level node that all initial nodes must be connected to.
 
         Examples:
-            There are two ways to call this routine, with the destination message being specified:
+            There are two ways to call this routine, with the destination node being specified:
 
-                >>> proto = Protocol("Example")
-                >>> n1 = proto.create_node(Message(), 'client', 'server')
-                >>> n2 = proto.create_node(Message(), 'server', 'client')
-                >>> proto.connect(n1, n2)
+                >> > proto = Protocol("Example")
+                >> > n1 = proto.create_dummy()
+                >> > n2 = proto.create_dummy()
+                >> > proto.connect(n1, n2)
 
-            or by specifying only the source message:
+            or by specifying only the source node:
 
-                >>> proto.connect(proto.create_node(Message(), 'client', 'server'))
+                >> > proto.connect(proto.create_dummy())
 
-            In this last case, `connect` will attach the supplied message to the root node.
+            In this last case, `connect` will attach the supplied node to the root node.
 
         Args:
-            src: Node of the source message to connect.
-            dst (optional): Node of the destination message to connect.
+            src: Source node to connect.
+            dst (optional): Destination node to connect.
             tags (optional): An arbitrary tag for the edge. Defaults to `EdgeTag.SEQUENCE`.
 
         Returns:
@@ -245,61 +272,117 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge]):
 
         return edge
 
-    def iterate_as(self, actor: str, tag_filter: Callable[[EdgeTag], bool] | None = None) -> Iterator[ProtocolPath]:
+    def iterate_as(self, actor: str,
+                   tag_filter: Callable[[EdgeTag], bool] = lambda _: True,
+                   allowed_paths: list[ProtocolPath] | None = None,
+                   max_visits: int = 1) -> Iterator[ProtocolPath]:
         """Iterate over all the paths inside this protocol that starts from the root node.
 
         Args:
             actor: The name of the actor for whom the paths should be returned.
-            tag_filter (optional): A function that takes a tag as input and returns `True` if edges 
-                with the given tag can be present in the paths. Defaults to `lamnda _: True`.
+            tag_filter (optional): A function that takes a tag as input and returns `True` if edges
+                with the given tag can be present in the paths. Defaults to `lambda _: True`.
+            allowed_paths (optional): List of allowed `ProtocolPath` objects to consider for 
+                iteration. If is not `None`, then `max_visits` won't be used. Defaults to `None`.
+            max_visits (optional): Maximum times a node can be visited. If it is `0` it means no 
+                limit. Defaults to `1`.
 
         Yields:
-            ProtocolPath: Paths for which at least the last node is sent by `actor`. 
+            ProtocolPath: Paths for which at least the last node is a `MessageNode` instance whose 
+                message is sent by `actor`.
         """
 
-        if tag_filter is None:
-            def tag_filter(_):
-                return True
-        yield from self._iterate_as_rec(self.root, [], actor, tag_filter)
+        if allowed_paths is not None:
+            yield from self._iterate_allowed_paths(allowed_paths, actor, tag_filter)
+        else:
+            yield from self._iterate_all_paths(actor, tag_filter, max_visits)
 
-    def _iterate_as_rec(self, node: ProtocolNode, path: list[ProtocolEdge], actor: str, tag_filter: Callable[[EdgeTag], bool]) -> Iterator[ProtocolPath]:
-        """Recursive helper for `iterate_as`.
+    def _iterate_all_paths(self, actor: str,
+                           tag_filter: Callable[[EdgeTag], bool],
+                           max_visits: int) -> Iterator[ProtocolPath]:
+        """Iterate over all the paths inside this protocol that starts from the root node.
 
         Args:
-            node: Current message that is being visited.
-            path: List of edges along the path to the current message being visited.
+            actor: The name of the actor for whom the paths should be returned.
+            tag_filter: A function that takes a tag as input and returns `True` if edges
+                with the given tag can be present in the paths.
+            max_visits: Maximum times a node can be visited. If it is `0` it means no 
+                limit.
+
+        Yields:
+            ProtocolPath: Paths for which at least the last node is a `MessageNode` instance whose 
+                message is sent by `actor`.
+        """
+
+        def skip_edge(edge: ProtocolEdge) -> bool:
+            return not tag_filter(edge)
+
+        def yield_path(edge: ProtocolEdge) -> bool:
+            return isinstance(edge.dst, MessageNode) and actor == edge.dst.src
+
+        def on_enter(_):
+            return
+
+        def on_exit(_):
+            return
+
+        def build_path(path: list[ProtocolEdge]):
+            return ProtocolPath(path, actor)
+
+        yield from self._dfs_traversal(
+            self.root, [], {}, max_visits, build_path, skip_edge, yield_path, on_enter, on_exit)
+
+    def _iterate_allowed_paths(self, allowed_paths: list[ProtocolPath], actor: str, tag_filter: Callable[[EdgeTag], bool]) -> Iterator[ProtocolPath]:
+        """Iterates over all unique subpaths in `allowed_paths`. Common subpaths are only yielded once.
+
+        Args:
+            allowed_paths: List of allowed `ProtocolPath` objects to consider for iteration.
             actor: The name of the actor for whom the paths should be returned.
             tag_filter: A function that takes a tag as input and returns `True` if edges with the 
                 given tag can be present in the paths.
 
         Yields:
-            ProtocolPath: Paths for which at least the last node is sent by `actor`. 
+            ProtocolPath: Paths where at least the last node is a `MessageNode` sent by `actor`.
         """
 
-        # keep track of the path as we fuzz through it, don't count the root node
-        # we keep track of edges as opposed to nodes because if there is
-        # more than one path through a set of given nodes we don't want any ambiguity
+        unique_paths = set()
 
-        # step through every edge from the current node
-        for edge in self.edges_from(node):
-            if not tag_filter(edge.tags):
-                continue
+        # generates all subpaths of a given path and adds them to the unique set
+        def add_unique_subpaths(path: ProtocolPath):
+            edges = path.path
+            for end_idx in range(1, len(edges) + 1):
+                subpath = ProtocolPath(edges[:end_idx])
+                if subpath not in unique_paths:
+                    unique_paths.add(subpath)
+                    yield subpath
 
-            path.append(edge)
-            current_node = self.nodes[edge.dst.id]
+        for path in allowed_paths:
+            for subpath in add_unique_subpaths(path):
+                last_node = subpath.path[-1].dst
+                if isinstance(last_node, MessageNode) and last_node.src == actor:
+                    if all(tag_filter(edge.tags) for edge in subpath.path):
+                        yield subpath
 
-            if actor == edge.dst.src:
-                # return the path only if at least the last node can be sent by the actor
-                # otherwise what should we fuzz?
-                yield ProtocolPath(path, actor)
+    def build_path(self, path: list[str] | str) -> ProtocolPath | None:
+        """Build a path from a given string representation.
 
-            # recursively fuzz the remainder of the messages in the protocol graph.
-            yield from self._iterate_as_rec(current_node, path, actor, tag_filter)
+        Args:
+            path: It can be in 2 formats:
+                1. A string representation in the format "actor:id.id.id...".
+                2. A list of message names. In this case the first path matching all the names is 
+                    chosen.
 
-            # finished with the last message on the path, pop it off the path stack.
-            path.pop()
+        Returns:
+            ProtocolPath: The built path.
+            None: If no valid path exists.
+        """
 
-    def build_path(self, path: str) -> ProtocolPath:
+        if isinstance(path, str):
+            return self._build_path_from_str(path)
+        else:
+            return self._build_path_from_names(path)
+
+    def _build_path_from_str(self, path: str) -> ProtocolPath | None:
         """Build a path from a given string representation.
 
         Args:
@@ -307,10 +390,7 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge]):
 
         Returns:
             ProtocolPath: The built path.
-
-        Raises:
-            InvalidPathError: If the provided string representation does not match with a possible
-                path.
+            None: If no valid path exists.
         """
 
         actor, path = path.split(':')
@@ -320,8 +400,52 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge]):
         for i in ids:
             i = int(i)
             if i not in self.edges:
-                raise InvalidPathError(f"Invalid path: '{path}'")
+                return None
 
             path_edges.append(self.edges[i])
 
         return ProtocolPath(path_edges, actor)
+
+    def _build_path_from_names(self, names: list[str]) -> ProtocolPath | None:
+        """Build a path in the protocol graph based on a sequence of message names.
+
+        Args:
+            names: List of message names to search as a path.
+
+        Returns:
+            ProtocolPath: The first valid path if found.
+            None: If no valid path exists matching the sequence.
+        """
+
+        # this keeps track of the message index in the current recursive call
+        msg_idx_stack = [0]
+
+        def on_enter(_):
+            return
+
+        def skip_edge(edge: ProtocolEdge) -> bool:
+            # if it is a MessageNode it has a message with a name that can be compared to
+            return isinstance(edge.dst, MessageNode) and edge.dst.msg.name != names[msg_idx_stack[-1]]
+
+        def yield_path(edge: ProtocolEdge) -> bool:
+            # prepare the stack for the next recursion
+            msg_idx_stack.append(msg_idx_stack[-1])
+
+            if isinstance(edge.dst, MessageNode):
+                # since we know that edge.dst.msg.name == names[msg_idx_stack[-2]] (because
+                # otherwise we would have skipped this edge) we can increment the new message index
+                msg_idx_stack[-1] += 1
+
+            # if we reached the last element of the names' list, if they are equal we finally
+            # found a path
+            return msg_idx_stack[-1] == len(names)
+
+        def on_exit(_):
+            # since if we enter in another recursion level, we always push something on the stack
+            # (see yield_path), on the return we always need to pop something off the stack
+            msg_idx_stack.pop()
+
+        build_path = ProtocolPath
+
+        return next(self._dfs_traversal(
+            self.root, [], {}, 0, build_path, skip_edge, yield_path, on_enter, on_exit), None)
