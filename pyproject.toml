@@ -10,12 +10,13 @@ license = "MIT"
 optional = true
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.13"
 pysctp = "^0.7.2"
 pycrate = "^0.7.7"
 grpcio = "^1.67.0"
 grpcio-tools = "^1.67.0"
 scapy = "^2.6.0"
+pyyaml = "^6.0.2"
 
 [tool.poetry.group.docs.dependencies]
 pdoc = "^14.7.0"
@@ -28,3 +29,4 @@ build-backend = "poetry.core.masonry.api"
 container-monitor = 'fuzzydoo.agents.container_monitor:main'
 compose-restart = 'fuzzydoo.agents.compose_restart:main'
 network-sniffer = 'fuzzydoo.agents.network_sniffer:main'
+ueransim-controller = 'fuzzydoo.agents.ueransim_controller:main'
