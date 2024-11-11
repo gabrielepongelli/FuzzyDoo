@@ -1364,6 +1364,8 @@ class NGAPProtocol(Protocol):
         self.connect(src=cap_req_ue_context, dst=ue_context_release_request,
                      tags=EdgeTag.OPTIONAL | EdgeTag.CONTROL_FLOW)
         self.connect(src=ue_context_release_request, dst=cap_del_ue_context)
+        self.connect(src=ue_context_release_request,
+                     dst=ue_context_release_command)
 
         self.connect(src=cap_req_ue_context, dst=ue_context_modification_request,
                      tags=EdgeTag.OPTIONAL | EdgeTag.CONTROL_FLOW)
@@ -1531,32 +1533,32 @@ class NGAPProtocol(Protocol):
         ###
         # Procedures dependant on the successful creation of a PDU session
         ###
-        self.connect(src=cap_add_pdu_session, dst=pdu_session_resource_modify_request,
+        self.connect(src=cap_req_pdu_session, dst=pdu_session_resource_modify_request,
                      tags=EdgeTag.OPTIONAL | EdgeTag.CONTROL_FLOW)
         self.connect(src=pdu_session_resource_modify_response,
-                     dst=cap_add_pdu_session)
+                     dst=cap_req_pdu_session)
         self.connect(src=pdu_session_resource_modify_request,
                      dst=pdu_session_resource_modify_indication,
                      tags=EdgeTag.OPTIONAL | EdgeTag.CONTROL_FLOW)
 
-        self.connect(src=cap_add_pdu_session, dst=pdu_session_resource_release_command,
+        self.connect(src=cap_req_pdu_session, dst=pdu_session_resource_release_command,
                      tags=EdgeTag.OPTIONAL | EdgeTag.CONTROL_FLOW)
         self.connect(src=pdu_session_resource_release_response,
                      dst=cap_del_pdu_session)
 
-        self.connect(src=cap_add_pdu_session, dst=pdu_session_resource_notify,
+        self.connect(src=cap_req_pdu_session, dst=pdu_session_resource_notify,
                      tags=EdgeTag.OPTIONAL | EdgeTag.CONTROL_FLOW)
         self.connect(src=pdu_session_resource_notify, dst=cap_del_pdu_session)
 
-        self.connect(src=cap_add_pdu_session, dst=pdu_session_resource_modify_indication,
+        self.connect(src=cap_req_pdu_session, dst=pdu_session_resource_modify_indication,
                      tags=EdgeTag.OPTIONAL | EdgeTag.CONTROL_FLOW)
         self.connect(src=pdu_session_resource_modify_confirm,
-                     dst=cap_add_pdu_session)
+                     dst=cap_req_pdu_session)
 
-        self.connect(src=cap_add_pdu_session, dst=path_switch_request,
+        self.connect(src=cap_req_pdu_session, dst=path_switch_request,
                      tags=EdgeTag.OPTIONAL | EdgeTag.CONTROL_FLOW)
         self.connect(src=path_switch_request_acknowledge,
-                     dst=cap_add_pdu_session)
+                     dst=cap_req_pdu_session)
 
         cap_add_broadcast_session = self.create_capability(
             self.capabilities[3], CapabilityAction.ADD)
