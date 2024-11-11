@@ -1,10 +1,23 @@
 import logging
+from dataclasses import dataclass
 
+from .proto.protocol import ProtocolPath
 from .utils.errs import FuzzyDooError
 
 
 class AgentError(FuzzyDooError):
     """Generic error for the `Agent` interface."""
+
+
+@dataclass
+class ExecutionContext:
+    """Class representing the context in which a method is executed."""
+
+    protocol_name: str
+    """Name of the protocol on which FuzzyDoo is executed."""
+
+    path: ProtocolPath
+    """The specific protocol path on which the agent method is invoked."""
 
 
 class Agent:
@@ -46,11 +59,27 @@ class Agent:
                 `stop_execution` is called.
         """
 
-    def on_test_start(self, path: str):
-        """Called right before the start of a test case.
+    def get_supported_paths(self, protocol: str) -> list[list[str]]:
+        """Get the all the paths supported by the current agent for the given protocol.
+
+        This method should be called from the engine before starting a run.
 
         Args:
-            path: The path of the test being run.
+            protocol: The name of the protocol to be used.
+
+        Returns:
+            list[list[str]]|bool: The list of paths supported by the current agent. Each element 
+                of the main list is a list of message names that compose the path. If there are no specific paths supported, an empty list should be returned.
+
+        Raises:
+            AgentError: If some error occurred at the agent side. In this case the method 
+                `stop_execution` is called.
+        """
+
+        return []
+
+    def on_test_start(self, ctx: ExecutionContext):
+        """Called right before the start of a test case.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -79,13 +108,10 @@ class Agent:
 
         return []
 
-    def skip_epoch(self, path: str) -> bool:
+    def skip_epoch(self, ctx: ExecutionContext) -> bool:
         """Should the current epoch be skipped.
 
         This method should be called before `on_test_start`.
-
-        Args:
-            path: The path of the epoch on which test cases will be run on.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -183,11 +209,35 @@ class AgentMultiplexer:
                 "Agent %s signaled an unrecoverable error", agent.name)
             raise AgentError(f"Agent {agent.name}: {str(e)}") from e
 
-    def on_test_start(self, path: str):
-        """Executes `on_test_start` for each agent in the multiplexer.
+    def get_supported_paths(self, protocol: str) -> list[list[str]]:
+        """Executes `get_supported_paths` for each agent in the multiplexer.
 
         Args:
-            path: The path of the test being run.
+            protocol: The name of the protocol to be used.
+
+        Returns:
+            list[list[str]]|bool: The list of paths supported by the current agent. Each element 
+                of the main list is a list of message names that compose the path. If there are no specific paths supported, an empty list should be returned.
+
+        Raises:
+            AgentError: If any of the agents wants to stop the execution.
+        """
+
+        self._logger.debug('Get supported paths')
+
+        paths = []
+        for agent in self._agents:
+            try:
+                res = agent.get_supported_paths(protocol)
+                if isinstance(res, list):
+                    paths.extend(res)
+            except AgentError as e:
+                self._handle_error(agent, e)
+
+        return res
+
+    def on_test_start(self, ctx: ExecutionContext):
+        """Executes `on_test_start` for each agent in the multiplexer.
 
         Raises:
             AgentError: If any of the agents wants to stop the execution.
@@ -197,7 +247,7 @@ class AgentMultiplexer:
 
         for agent in self._agents:
             try:
-                agent.on_test_start(path)
+                agent.on_test_start(ctx)
             except AgentError as e:
                 self._handle_error(agent, e)
 
@@ -237,11 +287,8 @@ class AgentMultiplexer:
 
         return data
 
-    def skip_epoch(self, path: str) -> bool:
+    def skip_epoch(self, ctx: ExecutionContext) -> bool:
         """Executes `skip_epoch` for each agent in the multiplexer.
-
-        Args:
-            path: The path of the epoch on which test cases will be run on.
 
         Returns:
             bool: `True` if at least one agent signaled to skip the epoch.
@@ -255,7 +302,7 @@ class AgentMultiplexer:
         skip = False
         for agent in self._agents:
             try:
-                new_skip = agent.skip_epoch(path)
+                new_skip = agent.skip_epoch(ctx)
                 self._logger.debug('Agent %s: skip = %s',
                                    agent.name, 'yes' if new_skip else 'no')
                 skip = skip or new_skip

@@ -6,6 +6,8 @@ import grpc
 
 from ...agent import Agent, AgentError
 from .generated import agent_pb2, agent_pb2_grpc
+from .serializers import ExecutionContextSerializer
+from .serializer import DeserializationError
 
 
 class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
@@ -82,12 +84,33 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
     def setOptions(self, request, context):
         logging.debug('setOptions')
 
-        options = {}
-        for opt in request.options:
-            options[opt.name] = pickle.loads(opt.value)
+        if request.HasField('options'):
+            options = {}
+            for opt in request.options.records:
+                options[opt.name] = pickle.loads(opt.value)
+
+            try:
+                self.set_options(**options)
+            except AgentError as e:
+                # pylint: disable=no-member
+                return agent_pb2.ResponseMessage(
+                    status=agent_pb2.ResponseMessage.Status.ERROR,
+                    error=str(e))
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
+
+    def getSupportedPaths(self, request, context):
+        logging.debug('getSupportedPaths')
+
+        if not request.HasField('protocol'):
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error="No protocol name available")
 
         try:
-            self.set_options(**options)
+            res = self.get_supported_paths(request.protocol)
         except AgentError as e:
             # pylint: disable=no-member
             return agent_pb2.ResponseMessage(
@@ -95,14 +118,30 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
                 error=str(e))
 
         # pylint: disable=no-member
-        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
+        paths = agent_pb2.ResponseMessage.ProtocolPathsData()
+        # pylint: disable=not-an-iterable
+        for p in res:
+            path = agent_pb2.ResponseMessage.ProtocolPathsData.ProtocolPath()
+            path.messages.extend(p)
+            paths.paths.append(path)
+        data = agent_pb2.ResponseMessage.Data(protocol_paths=paths)
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, data=data)
 
     def onTestStart(self, request, context):
         logging.debug('onTestStart')
 
+        if not request.HasField('ctx'):
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error="No execution context available")
+
         try:
-            self.on_test_start(request.path)
-        except AgentError as e:
+            ctx = ExecutionContextSerializer.deserialize(request.ctx)
+            self.on_test_start(ctx)
+        except (AgentError, DeserializationError) as e:
             # pylint: disable=no-member
             return agent_pb2.ResponseMessage(
                 status=agent_pb2.ResponseMessage.Status.ERROR,
@@ -141,6 +180,7 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
             name=r[0], content=r[1]) for r in res]
         data = agent_pb2.ResponseMessage.TestData()
         data.records.extend(records)
+        data = agent_pb2.ResponseMessage.Data(test_data=data)
 
         # pylint: disable=no-member
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, data=data)
@@ -148,9 +188,16 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
     def skipEpoch(self, request, context):
         logging.debug('skipTest')
 
+        if not request.HasField('ctx'):
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error="No execution context available")
+
         try:
-            res = self.skip_epoch(request.path)
-        except AgentError as e:
+            ctx = ExecutionContextSerializer.deserialize(request.ctx)
+            res = self.skip_epoch(ctx)
+        except (AgentError, DeserializationError) as e:
             # pylint: disable=no-member
             return agent_pb2.ResponseMessage(
                 status=agent_pb2.ResponseMessage.Status.ERROR,

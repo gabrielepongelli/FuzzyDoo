@@ -1,30 +1,29 @@
 import logging
 import io
-import threading
+from typing import override
 
 import scapy.all as scapy
 
-from ..agent import AgentError
+from ..agent import AgentError, ExecutionContext
+from ..utils.threads import EventStoppableThread
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 
-class SnifferThread(threading.Thread):
+class SnifferThread(EventStoppableThread):
     """Thread class that sniffs packets."""
 
     # pylint: disable=redefined-builtin
     def __init__(self, iface: str | list[str], filter: str | None):
-        threading.Thread.__init__(self)
-        self.daemon = True
+        super().__init__()
 
         self._socket = None
 
         self._iface = iface
         self._filter = filter
-        self.stop_event = threading.Event()
-        self.stop_event.clear()
         self.packets: scapy.PacketList | None = None
         self.exception: Exception | None = None
 
+    @override
     def run(self):
         args = {
             'type': scapy.ETH_P_ALL,
@@ -43,10 +42,6 @@ class SnifferThread(threading.Thread):
         except scapy.Scapy_Exception as e:
             self.exception = e
 
-    def join(self, timeout=None):
-        self.stop_event.set()
-        super().join(timeout)
-
     def _should_stop_sniffer(self, _):
         return self.stop_event.is_set()
 
@@ -58,6 +53,7 @@ class NetworkSnifferAgent(GrpcClientAgent):
     """Agent that sniff packets on the server."""
 
     # pylint: disable=useless-parent-delegation
+    @override
     def set_options(self, **kwargs):
         """Set options for the agent.
 
@@ -76,18 +72,23 @@ class NetworkSnifferAgent(GrpcClientAgent):
         """
         super().set_options(**kwargs)
 
-    def skip_epoch(self, path: str) -> bool:
+    @override
+    def skip_epoch(self, ctx: ExecutionContext) -> bool:
         return False
 
+    @override
     def redo_test(self) -> bool:
         return False
 
+    @override
     def fault_detected(self) -> bool:
         return False
 
+    @override
     def on_fault(self):
         return
 
+    @override
     def stop_execution(self) -> bool:
         return False
 
@@ -106,6 +107,7 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
         self._sniffer: SnifferThread | None = None
         self._packets: scapy.PacketList | None = None
 
+    @override
     def set_options(self, **kwargs):
         if 'iface' in kwargs:
             self._iface = kwargs['iface']
@@ -116,11 +118,13 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
             self._filter = kwargs['filter']
             logging.info('Set %s = %s', 'filter', self._filter)
 
-    def on_test_start(self, path: str):
+    @override
+    def on_test_start(self, ctx: ExecutionContext):
         self._packets = None
         self._sniffer = SnifferThread(self._iface, self._filter)
         self._sniffer.start()
 
+    @override
     def on_test_end(self):
         if self._sniffer is not None:
             self._sniffer.join()
@@ -135,6 +139,7 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
             self._packets = self._sniffer.packets
             self._sniffer = None
 
+    @override
     def get_data(self) -> list[tuple[str, bytes]]:
         if self._packets is None:
             return []
@@ -152,6 +157,7 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
         pcap_bytes_io.close()
         return res
 
+    @override
     def on_shutdown(self):
         if self._sniffer is not None:
             self._sniffer.join()

@@ -1,7 +1,8 @@
 import logging
 import subprocess
+from typing import override
 
-from ..agent import AgentError
+from ..agent import AgentError, ExecutionContext
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 
@@ -9,6 +10,7 @@ class ContainerMonitorAgent(GrpcClientAgent):
     """Monitor that checks whether a docker container is running or not."""
 
     # pylint: disable=useless-parent-delegation
+    @override
     def set_options(self, **kwargs):
         """Set options for the agent.
 
@@ -24,27 +26,31 @@ class ContainerMonitorAgent(GrpcClientAgent):
         """
         super().set_options(**kwargs)
 
-    def on_test_start(self, path: str):
+    @override
+    def on_test_start(self, ctx: ExecutionContext):
         return
 
+    @override
     def on_test_end(self):
         return
 
+    @override
     def get_data(self) -> list[tuple[str, bytes]]:
         return []
 
-    def skip_epoch(self, path: str) -> bool:
+    @override
+    def skip_epoch(self, ctx: ExecutionContext) -> bool:
         return False
 
+    @override
     def redo_test(self) -> bool:
         return False
 
+    @override
     def on_fault(self):
         return
 
-    def on_shutdown(self):
-        return
-
+    @override
     def stop_execution(self) -> bool:
         return False
 
@@ -60,11 +66,13 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
 
         self._container_name: str | None = kwargs.get('container_name', None)
 
+    @override
     def set_options(self, **kwargs):
         if 'container_name' in kwargs:
             self._container_name = kwargs['container_name']
             logging.info('Set %s = %s', 'container_name', self._container_name)
 
+    @override
     def fault_detected(self) -> bool:
         if self._container_name is None:
             logging.error("No container name specified")

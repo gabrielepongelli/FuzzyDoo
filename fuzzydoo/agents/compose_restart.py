@@ -1,7 +1,8 @@
 import logging
 import subprocess
+from typing import override
 
-from ..agent import AgentError
+from ..agent import AgentError, ExecutionContext
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 
@@ -9,6 +10,7 @@ class ComposeRestartAgent(GrpcClientAgent):
     """Agent that restarts all the docker containers in a docker compose setup."""
 
     # pylint: disable=useless-parent-delegation
+    @override
     def set_options(self, **kwargs):
         """Set options for the agent.
 
@@ -27,24 +29,27 @@ class ComposeRestartAgent(GrpcClientAgent):
         """
         super().set_options(**kwargs)
 
+    @override
     def on_test_end(self):
         return
 
+    @override
     def get_data(self) -> list[tuple[str, bytes]]:
         return []
 
-    def skip_epoch(self, path: str) -> bool:
+    @override
+    def skip_epoch(self, ctx: ExecutionContext) -> bool:
         return False
 
+    @override
     def redo_test(self) -> bool:
         return False
 
+    @override
     def fault_detected(self) -> bool:
         return False
 
-    def on_shutdown(self):
-        return
-
+    @override
     def stop_execution(self) -> bool:
         return False
 
@@ -122,10 +127,12 @@ class ComposeRestartServerAgent(GrpcServerAgent):
             logging.error(err_msg)
             raise AgentError(err_msg) from e
 
-    def on_test_start(self, path: str):
+    @override
+    def on_test_start(self, ctx: ExecutionContext):
         if self._restart_anyway or not self._is_running():
             self._restart_compose()
 
+    @override
     def on_fault(self):
         self._restart_compose()
 

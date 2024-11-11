@@ -135,6 +135,17 @@ class ProtocolPath(Path[ProtocolNode, ProtocolEdge]):
         self.pos: int | None = None
         self.actor: str | None = actor
 
+    @property
+    def names(self) -> list[str]:
+        """Get the names of the messages inside the path."""
+
+        res = []
+        for edge in self.path:
+            if isinstance(edge.dst, MessageNode) \
+                    and (self.actor is None or self.actor in (edge.dst.src, edge.dst.dst)):
+                res.append(edge.dst.msg.name)
+        return res
+
     @override
     def __str__(self) -> str:
         return self.actor + ':' + '.'.join(str(edge.id) for edge in self.path)

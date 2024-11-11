@@ -6,7 +6,7 @@ from pycrate_core.utils import PycrateErr
 from pycrate_asn1rt.asnobj import ASN1Obj
 
 from ...mutator import Fuzzable, QualifiedNameFormatError, ContentNotFoundError, Mutator, mutable
-from ..message import Message, MessageParsingError
+from ..message import MessageFactory, Message, MessageParsingError
 from .types import EnumType, IntType, map_type
 
 
@@ -30,7 +30,7 @@ class NGAPMessage(Message):
             n_replay (optional): The number of copies of this message to send. Defaults to `1`.
         """
 
-        super().__init__(self.__class__.__name__, content, delay, n_replay)
+        super().__init__("NGAP", self.__class__.__name__, content, delay, n_replay)
 
         self._msg_type: str = msg_type
         self._body_type: str = body_type
@@ -208,6 +208,8 @@ for message_type in ngap.NGAP_PDU_Descriptions.NGAP_PDU._cont_tags.values():
         class_bases = (NGAPMessage, )
         class_attrs = {"__init__": make_init(message_type, k)}
         new_class = mutable(type(class_name, class_bases, class_attrs))
+
+        MessageFactory.register("NGAP", class_name, new_class)
 
         globals()[class_name] = new_class
         globals()['__all__'].append(class_name)

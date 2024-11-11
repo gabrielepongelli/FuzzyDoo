@@ -1,31 +1,81 @@
 syntax = "proto3";
 
 service AgentService {
-  rpc setOptions(OptionsMessage) returns (ResponseMessage) {}
-  rpc onTestStart(TestInfoMessage) returns (ResponseMessage) {}
-  rpc onTestEnd(EmptyMessage) returns (ResponseMessage) {}
-  rpc getData(EmptyMessage) returns (ResponseMessage) {}
-  rpc skipEpoch(EpochInfoMessage) returns (ResponseMessage) {}
-  rpc redoTest(EmptyMessage) returns (ResponseMessage) {}
-  rpc faultDetected(EmptyMessage) returns (ResponseMessage) {}
-  rpc onFault(EmptyMessage) returns (ResponseMessage) {}
-  rpc onShutdown(EmptyMessage) returns (ResponseMessage) {}
-  rpc stopExecution(EmptyMessage) returns (ResponseMessage) {}
+  rpc setOptions(RequestMessage) returns (ResponseMessage) {}
+  rpc getSupportedPaths(RequestMessage) returns (ResponseMessage) {}
+  rpc onTestStart(RequestMessage) returns (ResponseMessage) {}
+  rpc onTestEnd(RequestMessage) returns (ResponseMessage) {}
+  rpc getData(RequestMessage) returns (ResponseMessage) {}
+  rpc skipEpoch(RequestMessage) returns (ResponseMessage) {}
+  rpc redoTest(RequestMessage) returns (ResponseMessage) {}
+  rpc faultDetected(RequestMessage) returns (ResponseMessage) {}
+  rpc onFault(RequestMessage) returns (ResponseMessage) {}
+  rpc onShutdown(RequestMessage) returns (ResponseMessage) {}
+  rpc stopExecution(RequestMessage) returns (ResponseMessage) {}
 }
 
-message EmptyMessage {}
-
-message TestInfoMessage { string path = 1; }
-
-message EpochInfoMessage { string path = 1; }
-
-message OptionsMessage {
-  message Option {
-    string name = 1;
-    bytes value = 2;
+message ProtocolNode {
+  enum Type {
+    DUMMY = 0;
+    MESSAGE = 1;
   }
 
-  repeated Option options = 1;
+  message MessageContent {
+    string src = 1;
+    string dst = 2;
+    string protocol_name = 3;
+    string msg_name = 4;
+  }
+
+  uint64 id = 1;
+  Type type = 2;
+  optional MessageContent content = 3;
+}
+
+message ProtocolEdge {
+  enum Tag {
+    EDGE_TAG_UNSPECIFIED = 0;
+
+    CONTROL_FLOW = 1;
+    DATA_DEPENDENCY = 2;
+    ACKNOWLEDGEMENT = 4;
+    ERROR_HANDLING = 8;
+    TIMEOUT = 16;
+    RETRY = 32;
+    SEQUENCE = 64;
+    OPTIONAL = 128;
+  }
+
+  ProtocolNode src = 2;
+  ProtocolNode dst = 3;
+  uint32 tags = 4;
+}
+
+message ProtocolPath {
+  optional string actor = 1;
+  repeated ProtocolEdge path = 2;
+}
+
+message ExecutionContext {
+  string protocol_name = 1;
+  ProtocolPath path = 2;
+}
+
+message RequestMessage {
+  message Options {
+    message Option {
+      string name = 1;
+      bytes value = 2;
+    }
+
+    repeated Option records = 1;
+  }
+
+  oneof content {
+    Options options = 1;
+    string protocol = 2;
+    ExecutionContext ctx = 3;
+  }
 }
 
 message ResponseMessage {
@@ -34,6 +84,11 @@ message ResponseMessage {
     ERROR = 1;
   }
   Status status = 1;
+
+  message ProtocolPathsData {
+    message ProtocolPath { repeated string messages = 1; }
+    repeated ProtocolPath paths = 1;
+  }
 
   message TestData {
 
@@ -45,9 +100,16 @@ message ResponseMessage {
     repeated TestDataRecord records = 1;
   }
 
+  message Data {
+    oneof data {
+      TestData test_data = 1;
+      ProtocolPathsData protocol_paths = 2;
+    }
+  }
+
   oneof content {
     string error = 4;
     bool flag = 5;
-    TestData data = 6;
-  }
+    Data data = 6;
+  };
 }
