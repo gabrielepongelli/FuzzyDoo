@@ -49,7 +49,7 @@ class BitStrMutator(Mutator):
 
         return state
 
-    def _mutate(self, data: BitStrType, update_state: bool, state: dict[str: Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: BitStrType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -121,7 +121,7 @@ class BitStrMutator(Mutator):
     def next(self):
         self._mutate(True, None)
 
-    def mutate(self, data: BitStrType, state: dict[str: Any] | None = None) -> Mutation:
+    def mutate(self, data: BitStrType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(False, data, state)
 
 
@@ -165,7 +165,7 @@ class OctStrMutator(Mutator):
 
         return state
 
-    def _mutate(self, data: OctStrType, update_state: bool, state: dict[str: Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: OctStrType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -228,7 +228,7 @@ class OctStrMutator(Mutator):
     def next(self):
         self._mutate(True, None)
 
-    def mutate(self, data: OctStrType, state: dict[str: Any] | None = None) -> Mutation:
+    def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(False, data, state)
 
 
@@ -303,7 +303,7 @@ class GenericStrMutator(Mutator):
             res += chr(code_point)
         return res
 
-    def _mutate(self, data: BaseStringType, update_state: bool, state: dict[str: Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: BaseStringType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -353,7 +353,7 @@ class GenericStrMutator(Mutator):
     def next(self):
         self._mutate(True, None)
 
-    def mutate(self, data: OctStrType, state: dict[str: Any] | None = None) -> Mutation:
+    def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(False, data, state)
 
 
@@ -389,7 +389,7 @@ class AlphabetStringMutator(Mutator):
 
         return state
 
-    def _mutate(self, data: AlphabeticalStringType, update_state: bool, state: dict[str: Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: AlphabeticalStringType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are

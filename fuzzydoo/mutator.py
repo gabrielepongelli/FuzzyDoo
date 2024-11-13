@@ -267,7 +267,7 @@ class Mutator(ABC):
         """
 
 
-MUTATORS: dict[str: list[Mutator]] = {}
+MUTATORS: dict[str, list[Mutator]] = {}
 
 
 FuzzableT = TypeVar('FuzzableT', bound=Fuzzable)

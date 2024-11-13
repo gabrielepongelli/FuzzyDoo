@@ -21,7 +21,7 @@ class MessageParsingError(MessageError):
 class MessageFactory:
     """Factory that creates messages based on the protocol name and the message name."""
 
-    _msg_classes: dict[str: dict[str: Type["Message"]]] = {}
+    _msg_classes: dict[str, dict[str, Type["Message"]]] = {}
 
     @classmethod
     def get(cls, protocol: str, message: str) -> "Message":

@@ -106,7 +106,7 @@ class ASN1Type(Fuzzable):
                                     '{qname}' exists in this type")
 
 
-_MAPPING: dict[Type[ASN1Obj]: Type[ASN1Type]] = {}
+_MAPPING: dict[Type[ASN1Obj], Type[ASN1Type]] = {}
 
 
 MappedT = TypeVar('MappedT', bound=ASN1Type)

@@ -170,8 +170,8 @@ class Graph(Generic[NodeT, EdgeT, PathT]):
         and nodes.
         """
 
-        self.edges: dict[int: EdgeT] = {}
-        self.nodes: dict[int: NodeT] = {}
+        self.edges: dict[int, EdgeT] = {}
+        self.nodes: dict[int, NodeT] = {}
 
     def add_edge(self, edge: EdgeT):
         """Add a new edge to the graph. Ensures a node exists for both the 

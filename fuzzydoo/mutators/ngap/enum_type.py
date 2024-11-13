@@ -27,7 +27,7 @@ class EnumMutator(Mutator):
             'possible_values': self._possible_values
         }
 
-    def _mutate(self, data: EnumType, update_state: bool, state: dict[str: Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: EnumType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -61,7 +61,7 @@ class EnumMutator(Mutator):
     def next(self):
         self._mutate(True, None)
 
-    def mutate(self, data: EnumType, state: dict[str: Any] | None = None) -> Mutation:
+    def mutate(self, data: EnumType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(False, data, state)
 
 

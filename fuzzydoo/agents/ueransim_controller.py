@@ -216,7 +216,7 @@ class UERANSIMToolDescriptor:
     node_name: str | None = None
     """Name of the node to use with the UERANSIM cli."""
 
-    _n_instances: ClassVar[dict[str: int]] = {}
+    _n_instances: ClassVar[dict[str, int]] = {}
 
     def __init__(self, name: str,
                  execution_path: Path,
@@ -561,6 +561,7 @@ class OrchestratorThread(EventStoppableThread):
                         and self.ue_handler.success_event.is_set():
                     try:
                         self._exec_cli_on_path_idx()
+                        is_cli_executed = True
                     except AgentError as e:
                         logging.warning('%s', str(e), extra={'tool': 'cli'})
                         self.exception = e
