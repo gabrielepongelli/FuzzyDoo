@@ -12,6 +12,11 @@ service AgentService {
   rpc onFault(RequestMessage) returns (ResponseMessage) {}
   rpc onShutdown(RequestMessage) returns (ResponseMessage) {}
   rpc stopExecution(RequestMessage) returns (ResponseMessage) {}
+  rpc startPublisher(RequestMessage) returns (ResponseMessage) {}
+  rpc stopPublisher(RequestMessage) returns (ResponseMessage) {}
+  rpc sendToPublisher(RequestMessage) returns (ResponseMessage) {}
+  rpc receiveFromPublisher(RequestMessage) returns (ResponseMessage) {}
+  rpc dataAvailableToPublisher(RequestMessage) returns (ResponseMessage) {}
 }
 
 message ProtocolNode {
@@ -61,6 +66,11 @@ message ExecutionContext {
   ProtocolPath path = 2;
 }
 
+message PublisherData {
+  uint32 id = 1;
+  optional bytes data = 2;
+}
+
 message RequestMessage {
   message Options {
     message Option {
@@ -75,6 +85,7 @@ message RequestMessage {
     Options options = 1;
     string protocol = 2;
     ExecutionContext ctx = 3;
+    PublisherData publisher_data = 5;
   }
 }
 
@@ -104,6 +115,7 @@ message ResponseMessage {
     oneof data {
       TestData test_data = 1;
       ProtocolPathsData protocol_paths = 2;
+      bytes raw_data = 3;
     }
   }
 

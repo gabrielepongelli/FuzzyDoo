@@ -12,18 +12,20 @@ from .generated.agent_pb2_grpc import AgentServiceStub
 class GrpcClientAgent(Agent):
     """An agent for interacting with a remote gRPC server."""
 
-    def __init__(self, name: str | None = None, /, **kwargs):
+    def __init__(self, name: str | None = None, wait_start_time: float = 0.0, **kwargs):
         """Initialize an `GrpcClientAgent` instance with the provided arguments.
 
         Args:
             name (optional): The name of the agent. If is not provided, the name of the class will 
                 be used. Defaults to `None`.
+            wait_start_time (optional): Seconds to wait after calling `on_test_start` before 
+                continuing. Defaults to `0.0`.
             kwargs: Additional parameters. It must contain the following keys:
                 'address': A string representing the IP address of the gRPC server.
                 'port': A number representing the port the gRPC server is listening on.
         """
 
-        super().__init__(name, **kwargs)
+        super().__init__(name, wait_start_time, **kwargs)
 
         self._channel = grpc.insecure_channel(
             f"{kwargs['address']}:{kwargs['port']}")
@@ -246,5 +248,117 @@ class GrpcClientAgent(Agent):
 
         if not response.HasField('flag'):
             return True
+
+        return response.flag
+
+    ############################################################################################
+    ########################               Publisher Methods             #######################
+    ############################################################################################
+
+    @override
+    def start(self, pub_id: int):
+        # pylint: disable=no-member
+        data = agent_pb2.PublisherData(id=pub_id)
+
+        try:
+            # pylint: disable=no-member
+            response = self._stub.startPublisher(
+                agent_pb2.RequestMessage(publisher_data=data))
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
+
+    @override
+    def stop(self, pub_id: int):
+        # pylint: disable=no-member
+        data = agent_pb2.PublisherData(id=pub_id)
+
+        try:
+            # pylint: disable=no-member
+            response = self._stub.stopPublisher(
+                agent_pb2.RequestMessage(publisher_data=data))
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
+
+    @override
+    def send(self, pub_id: int, data: bytes):
+        # pylint: disable=no-member
+        data = agent_pb2.PublisherData(id=pub_id, data=data)
+
+        try:
+            # pylint: disable=no-member
+            response = self._stub.sendToPublisher(
+                agent_pb2.RequestMessage(publisher_data=data))
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
+
+    @override
+    def receive(self, pub_id: int) -> bytes:
+        # pylint: disable=no-member
+        data = agent_pb2.PublisherData(id=pub_id)
+
+        try:
+            # pylint: disable=no-member
+            response = self._stub.receiveFromPublisher(
+                agent_pb2.RequestMessage(publisher_data=data))
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
+
+        if not response.HasField('data'):
+            return AgentError("Unknown result")
+
+        if response.data.HasField('raw_data'):
+            return response.data.raw_data
+
+        return b""
+
+    @override
+    def data_available(self, pub_id: int) -> bool:
+        # pylint: disable=no-member
+        data = agent_pb2.PublisherData(id=pub_id)
+
+        try:
+            # pylint: disable=no-member
+            response = self._stub.dataAvailableToPublisher(
+                agent_pb2.RequestMessage(publisher_data=data))
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
+
+        if not response.HasField('flag'):
+            return AgentError("Unknown result")
 
         return response.flag

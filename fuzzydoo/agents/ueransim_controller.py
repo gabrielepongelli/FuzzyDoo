@@ -14,7 +14,7 @@ from more_itertools import first_true
 import yaml
 
 from ..agent import AgentError, ExecutionContext
-from ..utils.threads import EventStoppableThread, with_thread_safe_get_set
+from ..utils.threads import EventStoppableThread, ExceptionRaiserThread, with_thread_safe_get_set
 from ..proto.protocol import ProtocolPath
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
@@ -52,50 +52,6 @@ NGAP_SUPPORTED_PATHS = [
                                'PDUSessionResourceReleaseResponseMessage',
                                'UplinkNASTransportMessage']
 ]
-
-
-class UERANSIMControllerAgent(GrpcClientAgent):
-    """Agent that sniff packets on the server."""
-
-    @override
-    def set_options(self, **kwargs):
-        """Set options for the agent.
-
-        This method should be called before passing the agent to the engine.
-
-        Args:
-            kwargs: Additional keyword arguments. It must contain the following keys:
-                - 'gnb' (optional): A dictionary with the following key-value pairs:
-                    - 'exe_path' (optional): A string representing the remote path where the
-                        executable program to be used for the gnb is located. Defaults to
-                        `'./nr-gnb'`.
-                    - 'config_path' (optional): A string representing the remote path where the
-                        configuration file to be used for the gnb is located. Defaults to
-                        `'./gnb.yaml'`.
-                - 'ue' (optional): A dictionary with the following key-value pairs:
-                    - 'exe_path' (optional): A string representing the remote path where the
-                        executable program to be used for the ue is located. Defaults to
-                        `'./nr-ue'`.
-                    - 'config_path' (optional): A string representing the remote path where the
-                        configuration file to be used for the gnb is located. Defaults to
-                        `'./ue.yaml'`.
-                - 'cli_path' (optional): A string representing the remote path where the executable
-                    program to be used for the cli is located. Defaults to `'./nr-cli'`.
-
-        Raises:
-            AgentError: If some error occurred at the agent side. In this case the method
-                `stop_execution` is called.
-        """
-
-        super().set_options(**kwargs)
-
-    @override
-    def fault_detected(self) -> bool:
-        return False
-
-    @override
-    def on_fault(self):
-        return
 
 
 class OutputListenerThread(EventStoppableThread):
@@ -274,7 +230,7 @@ class UERANSIMCli:
                 f"Error running UERANSIM CLI command '{cmd}': {e}") from e
 
 
-class ProcessHandlerThread(EventStoppableThread):
+class ProcessHandlerThread(EventStoppableThread, ExceptionRaiserThread):
     """Thread class that handle UERANSIM processes."""
 
     def __init__(self, descriptor: UERANSIMToolDescriptor, is_success: Callable[[str], bool]):
@@ -283,18 +239,9 @@ class ProcessHandlerThread(EventStoppableThread):
         self.descriptor = descriptor
         self.is_success = is_success
 
-        self.exception: AgentError | None = None
         self.output_listener: OutputListenerThread | None = None
         self.error_detector: ErrorDetectorThread | None = None
         self.success_detector: OutputWatcherThread | None = None
-
-        self.is_error_recoverable: bool = True
-
-    @property
-    def is_error_occurred(self) -> bool:
-        """Check if an error has occurred."""
-
-        return self.exception is not None
 
     @property
     def success_event(self) -> Event | None:
@@ -361,16 +308,29 @@ class ProcessHandlerThread(EventStoppableThread):
             if self.descriptor.process.poll() is None:
                 self.descriptor.process.kill()
 
+    def _cleanup(self, logger: OutputWatcherThread):
+        """Perform some cleanup operations before joining the thread.
+
+        Args:
+            logger: The logger thread used during the thread execution.
+        """
+
+        self._stop_in_bg()
+
+        self.output_listener.join()
+        logger.join()
+        self.success_detector.join()
+        self.error_detector.join()
+
     @override
-    def run(self):
+    def handled_run(self):
         try:
             self._start_in_bg()
             self._retrieve_node_name()
         except AgentError as e:
-            self.exception = e
             self.is_error_recoverable = False
             self._stop_in_bg()
-            return
+            raise e
 
         self.output_listener = OutputListenerThread(
             self.descriptor.process.stdout)
@@ -394,26 +354,22 @@ class ProcessHandlerThread(EventStoppableThread):
 
         while not self.stop_event.is_set():
             if self.error_detector.watch_event.is_set():
-                self.exception = AgentError(self.error_detector.err_msg)
+                self._cleanup(output_logger)
                 self.is_error_recoverable = True
-                break
+                raise AgentError(self.error_detector.err_msg)
 
             if self.descriptor.process.poll() is not None:
-                self.exception = AgentError(f"{self.descriptor.name} exited prematurely with "
-                                            f"return code '{self.descriptor.process.returncode}'")
+                self._cleanup(output_logger)
                 self.is_error_recoverable = True
-                break
+                raise AgentError(f"{self.descriptor.name} exited prematurely with "
+                                 f"return code '{self.descriptor.process.returncode}'")
 
             time.sleep(0.1)
 
-        self._stop_in_bg()
-        self.output_listener.join()
-        output_logger.join()
-        self.success_detector.join()
-        self.error_detector.join()
+        self._cleanup(output_logger)
 
 
-class OrchestratorThread(EventStoppableThread):
+class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
     """Thread class that orchestrates the gNB and UE starting and monitoring operations."""
 
     def __init__(self, gnb_descriptor: UERANSIMToolDescriptor,
@@ -438,15 +394,6 @@ class OrchestratorThread(EventStoppableThread):
 
         self.protocol: str = protocol
         self.protocol_path_idx: int = protocol_path_idx
-
-        self.exception: AgentError | None = None
-        self.is_error_recoverable: bool = True
-
-    @property
-    def is_error_occurred(self) -> bool:
-        """Check if an error has occurred."""
-
-        return self.exception is not None
 
     def _exec_cli_on_path_idx(self):
         """Execute the UERANSIM cli command that corresponds to the given path index.
@@ -528,8 +475,20 @@ class OrchestratorThread(EventStoppableThread):
 
         return self.ue_handler.output
 
+    def _cleanup(self):
+        """Perform some cleanup operations before joining the thread."""
+
+        if self.ue_handler.is_alive():
+            self.ue_handler.join()
+            logging.info('Stopped',
+                         extra={'tool': self.ue_handler.descriptor.name})
+        if self.gnb_handler.is_alive():
+            self.gnb_handler.join()
+            logging.info('Stopped',
+                         extra={'tool': self.gnb_handler.descriptor.name})
+
     @override
-    def run(self):
+    def handled_run(self):
         self.gnb_handler.start()
         logging.info('Started',
                      extra={'tool': self.gnb_handler.descriptor.name})
@@ -545,15 +504,15 @@ class OrchestratorThread(EventStoppableThread):
                                  extra={'tool': self.ue_handler.descriptor.name})
             else:
                 if self.ue_handler.is_error_occurred:
-                    self.exception = self.ue_handler.exception
+                    e = self.ue_handler.exception
                     self.is_error_recoverable = self.ue_handler.is_error_recoverable
                     if self.is_error_recoverable:
-                        logging.warning('%s', str(self.exception),
-                                        extra={'tool': self.ue_handler.descriptor.name})
+                        logging.warning('%s', str(e), extra={
+                                        'tool': self.ue_handler.descriptor.name})
                     else:
-                        logging.error('%s', str(self.exception),
+                        logging.error('%s', str(e),
                                       extra={'tool': self.ue_handler.descriptor.name})
-                    break
+                    raise e
 
                 if self.also_exec_cli \
                         and not is_cli_executed \
@@ -564,32 +523,92 @@ class OrchestratorThread(EventStoppableThread):
                         is_cli_executed = True
                     except AgentError as e:
                         logging.warning('%s', str(e), extra={'tool': 'cli'})
-                        self.exception = e
                         self.is_error_recoverable = True
-                        break
-                    is_cli_executed = True
+                        raise e
 
             if self.gnb_handler.is_error_occurred:
-                self.exception = self.gnb_handler.exception
+                e = self.gnb_handler.exception
                 self.is_error_recoverable = self.gnb_handler.is_error_recoverable
                 if self.is_error_recoverable:
-                    logging.warning('%s', str(self.exception),
+                    logging.warning('%s', str(e),
                                     extra={'tool': self.gnb_handler.descriptor.name})
                 else:
-                    logging.error('%s', str(self.exception),
+                    logging.error('%s', str(e),
                                   extra={'tool': self.gnb_handler.descriptor.name})
-                break
+                raise e
 
             time.sleep(0.1)
 
-        if self.ue_handler.is_alive():
-            self.ue_handler.join()
-            logging.info('Stopped',
-                         extra={'tool': self.ue_handler.descriptor.name})
-        if self.gnb_handler.is_alive():
-            self.gnb_handler.join()
-            logging.info('Stopped',
-                         extra={'tool': self.gnb_handler.descriptor.name})
+        self._cleanup()
+
+
+class UERANSIMControllerAgent(GrpcClientAgent):
+    """Agent that controls the UERANSIM tools."""
+
+    def __init__(self, **kwargs):
+        if 'wait_start_time' not in kwargs:
+            kwargs['wait_start_time'] = 1.0
+        super().__init__(**kwargs)
+
+    @override
+    def set_options(self, **kwargs):
+        """Set options for the agent.
+
+        This method should be called before passing the agent to the engine.
+
+        Args:
+            kwargs: Additional keyword arguments. It must contain the following keys:
+                - 'gnb' (optional): A dictionary with the following key-value pairs:
+                    - 'exe_path' (optional): A string representing the remote path where the
+                        executable program to be used for the gnb is located. Defaults to
+                        `'./nr-gnb'`.
+                    - 'config_path' (optional): A string representing the remote path where the
+                        configuration file to be used for the gnb is located. Defaults to
+                        `'./gnb.yaml'`.
+                - 'ue' (optional): A dictionary with the following key-value pairs:
+                    - 'exe_path' (optional): A string representing the remote path where the
+                        executable program to be used for the ue is located. Defaults to
+                        `'./nr-ue'`.
+                    - 'config_path' (optional): A string representing the remote path where the
+                        configuration file to be used for the gnb is located. Defaults to
+                        `'./ue.yaml'`.
+                - 'cli_path' (optional): A string representing the remote path where the executable
+                    program to be used for the cli is located. Defaults to `'./nr-cli'`.
+
+        Raises:
+            AgentError: If some error occurred at the agent side. In this case the method
+                `stop_execution` is called.
+        """
+
+        super().set_options(**kwargs)
+
+    @override
+    def fault_detected(self) -> bool:
+        return False
+
+    @override
+    def on_fault(self):
+        return
+
+    @override
+    def start(self, pub_id: int):
+        return
+
+    @override
+    def stop(self, pub_id: int):
+        return
+
+    @override
+    def send(self, pub_id: int, data: bytes):
+        return
+
+    @override
+    def receive(self, pub_id: int) -> bytes:
+        return b""
+
+    @override
+    def data_available(self, pub_id: int) -> bool:
+        return False
 
 
 class UERANSIMControllerServerAgent(GrpcServerAgent):
@@ -761,7 +780,7 @@ def main():
     if os.geteuid() != 0:
         sys.stderr.write(
             "You need root permissions to run this script. To solve this problem execute this script like this:\n\n")
-        sys.stderr.write(f"\tsudo $(which ueransim-controller)\n\n")
+        sys.stderr.write("\tsudo $(which ueransim-controller)\n\n")
         sys.exit(1)
 
     if not args.ip or not args.port:

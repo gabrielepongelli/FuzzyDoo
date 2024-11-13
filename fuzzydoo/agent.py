@@ -1,4 +1,5 @@
 import logging
+import time
 from dataclasses import dataclass
 
 from .proto.protocol import ProtocolPath
@@ -26,25 +27,30 @@ class Agent:
     Agents are independent programs running somewhere (in the same machine or not).
 
     To execute some action, just override the appropriate method.
+
+    Attributes:
+        name: The name of the agent.
+        wait_start_time: Seconds to wait after calling `on_test_start` before continuing. This can 
+            be useful if an agent requires some time to start.
     """
 
     # pylint: disable=unused-argument
-    def __init__(self, name: str | None = None, /, **kwargs):
+    def __init__(self, name: str | None = None, wait_start_time: float = 0.0, **kwargs):
         """Initialize an `Agent` instance with the provided arguments.
 
         Args:
             name (optional): The name of the agent. If is not provided, the name of the class will 
                 be used. Defaults to `None`.
+            wait_start_time (optional): Seconds to wait after calling `on_test_start` before 
+                continuing. Defaults to `0.0`.
             kwargs (optional): Additional parameters.
         """
 
-        self._name = self.__class__.__name__ if name is None else name
-
-    @property
-    def name(self) -> str:
+        self.name = self.__class__.__name__ if name is None else name
         """The name of the agent."""
 
-        return self._name
+        self.wait_start_time: float = wait_start_time
+        """Time to wait after calling `on_test_start` before continuing."""
 
     def set_options(self, **kwargs):
         """Set options for the agent.
@@ -169,6 +175,84 @@ class Agent:
 
         return False
 
+    ############################################################################################
+    ########################               Publisher Methods             #######################
+    ############################################################################################
+
+    def start(self, pub_id: int):
+        """Set the `Publisher` specified to a running state where it can send/receive new data.
+
+        Change state such that `receive`/`receive` will work. For TCP this could be
+        connecting to a remote host, for a file it might be opening the file handle.
+
+        Args:
+            pub_id: The id of the publisher.
+
+        Raises:
+            AgentError: If some error occurred at the agent side.
+        """
+
+        return
+
+    def stop(self, pub_id: int):
+        """Set the `Publisher` specified to a stopped state where it can't send/receive new data.
+
+        Change state such that `send`/`receive` will not work. For TCP this could
+        be closing a connection, for a file it might be closing the file handle.
+
+        Args:
+            pub_id: The id of the publisher.
+
+        Raises:
+            AgentError: If some error occurred at the agent side. In this case the publisher should 
+                be stopped with the force.
+        """
+
+        return
+
+    def send(self, pub_id: int, data: bytes):
+        """Send some data to the `Publisher` specified.
+
+        Args:
+            pub_id: The id of the publisher.
+            data: The data to be sent.
+
+        Raises:
+            AgentError: If some error occurred at the agent side.
+        """
+
+        return
+
+    def receive(self, pub_id: int) -> bytes:
+        """Receive some data from the `Publisher` specified.
+
+        Args:
+            pub_id: The id of the publisher.
+
+        Returns:
+            bytes: The received data.
+
+        Raises:
+            AgentError: If some error occurred at the agent side.
+        """
+
+        return b""
+
+    def data_available(self, pub_id: int) -> bool:
+        """Check if there is any data available for reading from the `Publisher` specified.
+
+        Args:
+            pub_id: The id of the publisher.
+
+        Returns:
+            bool: `True` if there is data available, `False` otherwise.
+
+        Raises:
+            AgentError: If some error occurred at the agent side.
+        """
+
+        return False
+
 
 class AgentMultiplexer:
     """Manages communication with one or more agents."""
@@ -248,11 +332,15 @@ class AgentMultiplexer:
         for agent in self._agents:
             try:
                 agent.on_test_start(ctx)
+                time.sleep(agent.wait_start_time)
             except AgentError as e:
                 self._handle_error(agent, e)
 
     def on_test_end(self):
         """Executes `on_test_end` for each agent in the multiplexer.
+
+        Note: the order of agents in which `on_test_end` is called is the inverse of the order in 
+        which `on_test_start` is called.
 
         Raises:
             AgentError: If any of the agents wants to stop the execution.
@@ -260,7 +348,7 @@ class AgentMultiplexer:
 
         self._logger.debug('On test end')
 
-        for agent in self._agents:
+        for agent in self._agents[::-1]:
             try:
                 agent.on_test_end()
             except AgentError as e:

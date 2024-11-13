@@ -22,21 +22,15 @@ class Publisher(ABC):
     to provide specific functionality.
     """
 
-    @property
-    @abstractmethod
-    def started(self) -> bool:
-        """Check if the `Publisher` is currently running (i.e., in a running state).
-
-        Returns:
-            bool: `True` if the `Publisher` is running, `False` otherwise.
-        """
-
     @abstractmethod
     def start(self):
         """Set `Publisher` to a running state where it can send/receive new data.
 
         Change state such that `receive`/`receive` will work. For TCP this could be
         connecting to a remote host, for a file it might be opening the file handle.
+
+        Raises:
+            PublisherOperationError: If an error occurs while starting the publisher.
         """
 
     @abstractmethod
@@ -45,13 +39,17 @@ class Publisher(ABC):
 
         Change state such that `send`/`receive` will not work. For TCP this could
         be closing a connection, for a file it might be closing the file handle.
+
+        Raises:
+            PublisherOperationError: If an error occurs while stopping the publisher. In this case 
+                the publisher should be stopped with the force.
         """
 
     @abstractmethod
     def send(self, data: bytes):
         """Send some data to `Publisher`.
 
-        Parameters:
+        Args:
             data: The data to be sent.
 
         Raises:
@@ -59,11 +57,11 @@ class Publisher(ABC):
         """
 
     @abstractmethod
-    def receive(self) -> bytes | None:
+    def receive(self) -> bytes:
         """Receive some data from `Publisher`.
 
         Returns:
-            bytes: The received data, or `None` if no data is available.
+            bytes: The received data.
 
         Raises:
             PublisherOperationError: If an error occurs while receiving data.

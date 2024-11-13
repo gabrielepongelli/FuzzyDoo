@@ -78,8 +78,18 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
             except AgentError:
                 pass
 
-            self.server.stop(grace=0)
             logging.info('Shutting down')
+            self.shutdown()
+
+    def shutdown(self, timeout: float = 0):
+        """Shut the gRPC server down.
+
+        Args:
+            timeout (optional): Timeout in seconds to wait for requests to complete before shutting 
+                the server down. Default is `0`.
+        """
+
+        self.server.stop(grace=timeout)
 
     def setOptions(self, request, context):
         logging.debug('setOptions')
@@ -260,7 +270,7 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
                 error=str(e))
 
         # wait for the completion of this method for maximum 10 seconds
-        self.server.stop(10)
+        self.shutdown(10)
 
         # pylint: disable=no-member
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
@@ -280,3 +290,113 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
                 status=agent_pb2.ResponseMessage.Status.OK, flag=res)  # pylint: disable=no-member
 
         return response
+
+    ############################################################################################
+    ########################               Publisher Methods             #######################
+    ############################################################################################
+
+    def startPublisher(self, request, context):
+        logging.debug('startPublisher')
+
+        if not request.HasField('publisher_data'):
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error="No publisher id available")
+
+        try:
+            self.start(request.publisher_data.id)
+        except AgentError as e:
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error=str(e))
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
+
+    def stopPublisher(self, request, context):
+        logging.debug('stopPublisher')
+
+        if not request.HasField('publisher_data'):
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error="No publisher id available")
+
+        try:
+            self.stop(request.publisher_data.id)
+        except AgentError as e:
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error=str(e))
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
+
+    def sendToPublisher(self, request, context):
+        logging.debug('sendToPublisher')
+
+        if not request.HasField('publisher_data'):
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error="No publisher id available")
+
+        data = request.publisher_data.data if request.publisher_data.HasField(
+            'data') else b""
+
+        try:
+            self.send(request.publisher_data.id, data)
+        except AgentError as e:
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error=str(e))
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
+
+    def receiveFromPublisher(self, request, context):
+        logging.debug('receiveFromPublisher')
+
+        if not request.HasField('publisher_data'):
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error="No publisher id available")
+
+        try:
+            res = self.receive(request.publisher_data.id)
+        except AgentError as e:
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error=str(e))
+
+        # pylint: disable=no-member
+        data = agent_pb2.ResponseMessage.Data(raw_data=res)
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, data=data)
+
+    def dataAvailableToPublisher(self, request, context):
+        logging.debug('dataAvailableToPublisher')
+
+        if not request.HasField('publisher_data'):
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error="No publisher id available")
+
+        try:
+            res = self.data_available(request.publisher_data.id)
+        except AgentError as e:
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error=str(e))
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, flag=res)

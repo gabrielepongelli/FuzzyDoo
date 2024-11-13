@@ -54,6 +54,26 @@ class ContainerMonitorAgent(GrpcClientAgent):
     def stop_execution(self) -> bool:
         return False
 
+    @override
+    def start(self, pub_id: int):
+        return
+
+    @override
+    def stop(self, pub_id: int):
+        return
+
+    @override
+    def send(self, pub_id: int, data: bytes):
+        return
+
+    @override
+    def receive(self, pub_id: int) -> bytes:
+        return b""
+
+    @override
+    def data_available(self, pub_id: int) -> bool:
+        return False
+
 
 class ContainerMonitorServerAgent(GrpcServerAgent):
     """Monitor server agent that checks whether a docker container is running or not.
