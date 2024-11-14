@@ -26,7 +26,57 @@ class Agent:
 
     Agents are independent programs running somewhere (in the same machine or not).
 
-    To execute some action, just override the appropriate method.
+    The following is a simple pseudo-code that helps to understand when each method is called:
+    ```python
+    agent = SomeAgent()
+
+    options = # some options
+    agent.set_options(**options)
+
+    # Do some other configurations...
+
+    protocol_name = "Some protocol"
+    paths = agent.get_supported_paths(protocol_name)
+
+    # Start the fuzzing run
+    for epoch in epochs:
+        # Do some stuffs...
+
+        ctx = # some context
+        if agent.skip_epoch(ctx):
+            continue
+
+        # Do some other stuffs...
+
+        agent.on_test_start(ctx)
+        with test_case:
+            # Test case started
+            # Execute some actions...
+
+            if agent.redo_test():
+                # exit from test case
+
+            if agent.fault_detected():
+                agent.on_fault()
+
+                # ....
+
+                data = agent.get_data()
+
+        # Test case stopped
+
+        agent.on_test_end()
+
+    # Fuzzing run ended
+    agent.on_shutdown()
+    ```
+
+    In addition to this code, if each of the `Agent` methods called in this pseudo-code raises an 
+    exception, the method `stop_execution` is called with the following consequences:
+    - If its result is `True`, the program will call `on_shutdown` and nothing else.
+    - If its result is `False`, the program will handle the exception and **continue the execution**.
+
+    To add some behaviour, just override the appropriate method.
 
     Attributes:
         name: The name of the agent.
@@ -300,8 +350,9 @@ class AgentMultiplexer:
             protocol: The name of the protocol to be used.
 
         Returns:
-            list[list[str]]|bool: The list of paths supported by the current agent. Each element 
-                of the main list is a list of message names that compose the path. If there are no specific paths supported, an empty list should be returned.
+            list[list[str]]|bool: The list of all the paths supported the current agents. Each 
+            element of the main list is a list of message names that compose the path. If there are 
+            no specific paths supported, an empty list should be returned.
 
         Raises:
             AgentError: If any of the agents wants to stop the execution.
