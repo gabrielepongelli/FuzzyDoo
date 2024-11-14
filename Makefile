@@ -1,49 +1,34 @@
 PROJECT_NAME := fuzzydoo
-PROTO_DIR := $(PROJECT_NAME)/agents/grpc_agent
-GENERATED_DIR := $(PROJECT_NAME)/agents/grpc_agent/generated
-PROTO_FILES := $(wildcard $(PROTO_DIR)/*.proto)
+DOCS_DIR := $(abspath ./docs)
 
 # installs dependencies and generates gRPC files
-all: install-deps generate-grpc
+all: install-deps build
 
-.PHONY: all install-deps generate-grpc clean run help
+.PHONY: all build clean docs help
 
 # install python dependencies using Poetry
 install-deps:
-	poetry install
+	poetry install --only build --no-root -q
 
-# generate gRPC files from .proto definitions
-generate-grpc: $(PROTO_FILES)
-	mkdir -p $(GENERATED_DIR)
-	touch $(GENERATED_DIR)/__init__.py
-	poetry run python -m grpc_tools.protoc \
-		-I=$(PROTO_DIR) \
-		--python_out=$(GENERATED_DIR) \
-		--grpc_python_out=$(GENERATED_DIR) \
-		$(PROTO_FILES)
-	find $(GENERATED_DIR) -name '*.py' -exec sed -i \
-		-e 's/^import \(.*_pb2\)/from . import \1/' {} \;
+# build the package
+build:
+	poetry build -q
 
-# clean generated gRPC python files
+# clean files and directories generated from the build process
 clean:
-	rm -rf $(GENERATED_DIR)
-
-# run the application
-run:
-	poetry run python main.py
+	rm -rf ./build ./dist ./$(PROJECT_NAME)/agents/grpc_agent/generated
+	rm -f ./setup.py
 
 # generate the documentation
 docs:
-	poetry install --with docs
-	pdoc -d google $(PROJECT_NAME)
+	poetry install --only docs --no-root -q
+	pdoc -d google $(PROJECT_NAME) -o $(DOCS_DIR)
 
 # help command to list available commands
 help:
 	@echo "Available make commands:"
-	@echo "  make all           - Install dependencies and generate gRPC files"
-	@echo "  make install-deps  - Install dependencies using Poetry"
-	@echo "  make generate-grpc - Generate gRPC files from .proto files"
-	@echo "  make clean         - Clean generated gRPC files"
-	@echo "  make run           - Run the application"
-	@echo "  make docs          - Generate the documentation"
+	@echo "  make				- Install build dependencies and build the package"
+	@echo "  make build			- Build the package"
+	@echo "  make clean			- Clean files and directories generated from the build process"
+	@echo "  make docs			- Generate the documentation"
 
