@@ -11,7 +11,7 @@ install-deps:
 	poetry install --only build --no-root -q
 
 # build the package
-build:
+build: install-deps
 	poetry build -q
 
 # clean files and directories generated from the build process
@@ -20,8 +20,8 @@ clean:
 	rm -f ./setup.py
 
 # generate the documentation
-docs:
-	poetry install --only docs --no-root -q
+docs: build
+	poetry install --with docs --no-root -q
 	pdoc -d google $(PROJECT_NAME) -o $(DOCS_DIR)
 
 # help command to list available commands
