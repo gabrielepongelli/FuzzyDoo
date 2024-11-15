@@ -163,9 +163,9 @@ class Mutation:
         mutator_state: The state of the mutator at the time of mutation. This attribute can hold
             any additional information about the mutator's state that might be useful for applying 
             the mutation.
-        field_qualified_name: The qualified name of the field in the `Fuzzable` object that was 
-            mutated. This attribute allows for precise tracking of the location of the mutation 
-            within the data structure.
+        field_name: The qualified name of the field in the `Fuzzable` object that was mutated. This 
+            attribute allows for precise tracking of the location of the mutation within the data 
+            structure.
         mutated_value: The new value of the mutated field. This attribute holds the 
             value that the field was changed to as part of the mutation. If can be `None` if the 
             new value is not currently available.
@@ -177,7 +177,7 @@ class Mutation:
         Arguments:
             mutator: The type of the mutator that generated this mutation.
             mutator_state: The state of the mutator at the time of mutation.
-            field_name: The  name of the field in the `Fuzzable` object that was mutated.
+            field_name: The name of the field in the `Fuzzable` object that was mutated.
             mutated_value (optional): The new value of the mutated field. Defaults to `None`.
         """
 
@@ -293,7 +293,7 @@ def mutable(cls: FuzzableT) -> FuzzableT:
                  or 'mutators' not in getattr(cls, '__abstractmethods__')):
         old_mutators = cls.mutators
 
-    def new_mutators(self):
+    def new_mutators(self: Fuzzable):
         res = MUTATORS.get(key, [])
         return old_mutators(self) + [(m, self.qualified_name) for m in res]
 
