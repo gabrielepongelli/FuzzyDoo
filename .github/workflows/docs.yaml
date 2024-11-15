@@ -30,8 +30,10 @@ jobs:
 
       - name: Activate venv
         run: |
-          . .venv/bin/activate
-          echo "PATH=$PATH" >> "$GITHUB_ENV" # to save the PATH along future calls
+          # this is the same as doing: source .venv/bin/activate
+          export VIRTUAL_ENV="$(pwd)/.venv"
+          echo "VIRTUAL_ENV=$VIRTUAL_ENV" > "$GITHUB_ENV"
+          echo "$VIRTUAL_ENV/bin" >> "$GITHUB_PATH"
 
       - name: Install Poetry
         run: pip install poetry
