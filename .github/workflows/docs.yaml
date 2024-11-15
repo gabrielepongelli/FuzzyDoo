@@ -23,7 +23,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install Poetry
-        run: pip install --upgrade
+        run: pip install poetry
 
       - name: Install other dependencies
         run: sudo apt-get update && sudo apt-get install -y make libsctp-dev python3.13-dev
