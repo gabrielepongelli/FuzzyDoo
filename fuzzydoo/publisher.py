@@ -78,5 +78,9 @@ class Publisher(ABC):
             PublisherOperationError: If an error occurs while checking data availability.
         """
 
+    @abstractmethod
+    def __hash__(self) -> int:
+        pass
+
 
 __all__ = ['Publisher', 'PublisherError', 'PublisherOperationError']

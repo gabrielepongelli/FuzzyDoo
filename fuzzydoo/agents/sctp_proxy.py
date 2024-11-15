@@ -340,6 +340,9 @@ class ProxyEndpoint(Publisher):
 
         return not self._receiver.queue.empty()
 
+    def __hash__(self) -> int:
+        return hash(tuple(self.name, self.socket.fileno()))
+
 
 class SctpProxy(EventStoppableThread, ExceptionRaiserThread):
     """A class representing an SCTP proxy for forwarding data between two SCTP endpoints.
@@ -608,6 +611,9 @@ class PublisherProxyAgent(Publisher):
             return self._agent.data_available(self._pub_id)
         except AgentError as e:
             raise PublisherOperationError(str(e)) from e
+
+    def __hash__(self) -> int:
+        return hash(self._pub_id)
 
 
 class SctpProxyAgent(GrpcClientAgent):
