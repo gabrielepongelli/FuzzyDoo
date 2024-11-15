@@ -49,8 +49,8 @@ class Agent:
         # Do some other stuffs...
 
         agent.on_test_start(ctx)
+        # Test case started
         with test_case:
-            # Test case started
             # Execute some actions...
 
             if agent.redo_test():
@@ -187,7 +187,7 @@ class Agent:
         return False
 
     def fault_detected(self) -> bool:
-        """Check if a fault was detected.
+        """Check if a fault was detected during the current test case.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -197,7 +197,7 @@ class Agent:
         return False
 
     def on_fault(self):
-        """Called when a fault was detected.
+        """Called when a fault was detected by at least one agent during the current test case.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
