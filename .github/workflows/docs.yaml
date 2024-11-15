@@ -22,11 +22,19 @@ jobs:
         with:
           python-version: "3.13-dev"
 
-      - name: Install Poetry
-        run: pip install poetry
-
       - name: Install other dependencies
         run: sudo apt-get update && sudo apt-get install -y make libsctp-dev
+
+      - name: Create venv
+        run: python3 -m venv .venv
+
+      - name: Activate venv
+        run: |
+          . .venv/bin/activate
+          echo "PATH=$PATH" >> "$GITHUB_ENV" # to save the PATH along future calls
+
+      - name: Install Poetry
+        run: pip install poetry
 
       - name: Build the documentation
         run: make docs
