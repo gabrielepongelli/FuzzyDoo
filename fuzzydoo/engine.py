@@ -18,10 +18,15 @@ from .decoder import Decoder, DecodingError
 from .mutator import Mutation, Mutator, MutatorCompleted
 from .utils.graph import Path
 from .utils.errs import FuzzyDooError
+from .utils.other import opened_w_error
 
 
 class FuzzingEngineError(FuzzyDooError):
     """Generic error for the `Engine` class."""
+
+
+class SetupFailedError(FuzzingEngineError):
+    """Exception raised when an error occurs during a run/epoch/test case setup."""
 
 
 class TestCaseExecutionError(FuzzingEngineError):
@@ -33,7 +38,7 @@ class TimeoutExecutionError(FuzzingEngineError):
 
 
 class Engine:
-    """The `Engine` class is the main component of the FuzzyDoo fuzzing framework. It orchestrates
+    """The `Engine` class is the main component of the FuzzyDoo fuzzing framework. It orchestrates 
     the entire fuzzing process, including protocol fuzzing, message mutation, encoding, decoding,
     monitoring, and result handling.
 
@@ -43,23 +48,21 @@ class Engine:
     process, calculate runtime and execution speed, and handle target system restarts.
 
     Attributes:
-        main_seed: Seed value for randomization.
+        main_seed: Seed value used for randomization.
         protocol: Protocol to be fuzzed.
         actor: Name of the actor in the protocol to act as.
-        source: Source of messages that will be fuzzed.
-        target: Target system to which the mutated messages will be forwarded.
-        agent: Agent multiplexer containing all the agents to use during the testing process.
-        encoders: List of encoders to prepare the fuzzed data before sending them to `target`.
-        decoders: List of decoders to decode the data received by `source` and prepare them to
-            be fuzzed.
+        actors: Mapping of each protocol's actor with the related `Publisher` to use.
+        encoders: List of encoders to be used during the fuzzing process.
+        decoders: List of decoders to be used during the fuzzing process.
         findings_dir_path: Path to the directory where findings will be stored.
+        max_attempts_of_test_redo: Maximum number of attempts to re-perform a test case.
         max_test_cases_per_epoch: Maximum number of test cases to be executed per epoch.
-        stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a
+        stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a 
             vulnerability.
         wait_time_before_test_end: Time to wait before terminating a single test in case no message
             is received by `source` or by `target` (in seconds).
-        target_restart_timeout: Time to wait after restarting the target system and before
-            checking for its liveness (in seconds).
+        start_time: Time since epoch taken at the beginning of a run.
+        end_time: Time since epoch taken at the end of a run.
 
 
     Todo: add an example once everything is done properly.
@@ -77,57 +80,75 @@ class Engine:
                  max_attempts_of_test_redo: int,
                  max_test_cases_per_epoch: int,
                  stop_on_find: bool,
-                 wait_time_before_test_end: int,
-                 target_restart_timeout: int):
+                 wait_time_before_test_end: int):
         """Initialize the `Engine` class with the provided parameters.
 
         The `Engine` class orchestrates the fuzzing process, managing protocols, message sources,
         target systems, monitors, encoders, decoders, findings directory, and other parameters.
 
         Parameters:
-            main_seed: Seed value for randomization.
+            main_seed: Seed value used for randomization.
             protocol: Protocol to be fuzzed.
             actor: Name of the actor in the protocol to act as.
-            source: Source of messages that will be fuzzed.
-            target: Target system to which the mutated messages will be forwarded.
-            agents: List of agents to use during the testing process.
-            encoders: List of encoders to prepare the fuzzed data before sending them to `target`.
-            decoders: List of decoders to decode the data received by `source` and prepare them to
-                be fuzzed.
+            actors: Mapping of each protocol's actor with the related `Publisher` to use.
+            encoders: List of encoders to be used during the fuzzing process.
+            decoders: List of decoders to be used during the fuzzing process.
             findings_dir_path: Path to the directory where findings will be stored.
-            max_attempts_of_test_redo: Maximum number of attempts to re perform a test case.
+            max_attempts_of_test_redo: Maximum number of attempts to re-perform a test case.
             max_test_cases_per_epoch: Maximum number of test cases to be executed per epoch.
-            stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a
+            stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a 
                 vulnerability.
             wait_time_before_test_end: Time to wait before terminating a single test in case no
                 message is received by `source` or by `target` (in seconds).
-            target_restart_timeout: Time to wait after restarting the target system and before
-                checking for its liveness (in seconds).
         """
 
         self.main_seed: int = main_seed
+        """Seed value used for randomization."""
 
         self.protocol: Protocol = protocol
-        self.actor: str = actor
-        self.actors: dict[str, Publisher] = actors
-        self.encoders: list[Encoder] = encoders
-        self.decoders: list[Decoder] = decoders
+        """Protocol to be fuzzed."""
 
-        self.agent: AgentMultiplexer = AgentMultiplexer()
+        self.actor: str = actor
+        """Name of the actor in the protocol to act as."""
+
+        self.actors: dict[str, Publisher] = actors
+        """Mapping of each protocol's actor with the related `Publisher` to use."""
+
+        self.encoders: list[Encoder] = encoders
+        """List of encoders."""
+
+        self.decoders: list[Decoder] = decoders
+        """List of decoders."""
+
+        self._agent: AgentMultiplexer = AgentMultiplexer()
+        """Mux of agents to use."""
+
         for a in agents:
-            self.agent.add_agent(a)
+            self._agent.add_agent(a)
 
         self.findings_dir_path: pathlib.Path | None = findings_dir_path
-        self.max_attempts_of_test_redo: int = max_attempts_of_test_redo
-        self.max_test_cases_per_epoch: int = max_test_cases_per_epoch
-        self.stop_on_find: bool = stop_on_find
-        self.wait_time_before_test_end: int = wait_time_before_test_end
-        self.target_restart_timeout: int = target_restart_timeout
+        """Path to the directory where findings will be stored."""
 
-        self.start_time: float = time.time()
+        self.max_attempts_of_test_redo: int = max_attempts_of_test_redo
+        """Maximum number of attempts to re-perform a test case."""
+
+        self.max_test_cases_per_epoch: int = max_test_cases_per_epoch
+        """Maximum number of test cases to be executed per epoch."""
+
+        self.stop_on_find: bool = stop_on_find
+        """Flag indicating whether to stop the fuzzing epoch upon finding a vulnerability."""
+
+        self.wait_time_before_test_end: int = wait_time_before_test_end
+        """Seconds to wait before terminating a single test in case no message is received."""
+
+        self.start_time: float | None = None
+        """Time since epoch taken at the beginning of a run."""
+
         self.end_time: float | None = None
+        """Time since epoch taken at the end of a run."""
 
         self._logger: logging.Logger = logging.getLogger('engine')
+        """Logger instance to use."""
 
         try:
             os.makedirs(self.findings_dir_path, exist_ok=True)
@@ -167,8 +188,11 @@ class Engine:
         """Calculate the total runtime of the fuzzing engine.
 
         Returns:
-            float: The total runtime of the fuzzing engine in seconds.
+            The total runtime of the fuzzing engine in seconds, or `0.0` if no run was started.
         """
+
+        if self.start_time is None:
+            return 0.0
 
         if self.end_time is not None:
             t = self.end_time
@@ -180,14 +204,43 @@ class Engine:
     def exec_speed(self) -> float:
         """Calculate the execution speed of the fuzzing engine.
 
-        The execution speed is calculated by dividing the number of cases
-        actually fuzzed by the total runtime of the fuzzing engine.
+        The execution speed is calculated by dividing the number of cases actually fuzzed by the 
+        total runtime of the fuzzing engine.
 
         Returns:
-            float: The execution speed of the fuzzing engine in cases per second.
+            The execution speed of the fuzzing engine in cases per second.
         """
 
-        return self._total_cases_fuzzed / self.runtime
+        rt = self.runtime
+        return self._total_cases_fuzzed / rt if rt > 0 else 0.0
+
+    def _setup_generic_run(self):
+        """Perform the required setup for a generic run.
+
+        For generic run is intended a run over a protocol, a run over a single epoch, or a run over 
+        a single test case.
+
+        This method performs the following actions:
+        1. Set a new run id.
+        2. Create a new findings directory for the current run.
+
+        Raises:
+            SetupFailedError: If any error occurs during setup.
+        """
+
+        self._run_id = datetime.datetime.now(datetime.timezone.utc).replace(
+            microsecond=0).isoformat().replace(":", "-")
+
+        # create the findings directory for the current run
+        self._run_path = self.findings_dir_path / pathlib.Path(self._run_id)
+        try:
+            os.makedirs(self._run_path, exist_ok=True)
+        except OSError as e:
+            msg = f"Could not create directory {self._run_path}: {e}"
+            raise SetupFailedError(msg) from e
+
+        self._logger.debug(
+            "Created current run findings directory %s", self._run_path)
 
     def run(self) -> bool:
         """Start to fuzz the protocol specified.
@@ -196,31 +249,26 @@ class Engine:
             `True` if the protocol is successfully fuzzed, `False` otherwise.
         """
 
-        # create the findings directory for the current run
-        self._run_id = datetime.datetime.now(datetime.timezone.utc).replace(
-            microsecond=0).isoformat().replace(":", "-")
-        self._run_path = self.findings_dir_path / pathlib.Path(self._run_id)
+        self._logger.info("Starting run setup")
         try:
-            os.makedirs(self._run_path, exist_ok=True)
-        except OSError as err:
-            self._logger.error(
-                "Could not create directory %s: %s", self._run_path, err)
+            self._setup_generic_run()
+        except SetupFailedError as e:
+            self._logger.error("%s", str(e))
+            self._logger.error("Run setup failed")
             return False
-
-        self._logger.debug(
-            "Created current run findings directory %s", self._run_path)
+        self._logger.info("Run setup completed")
 
         self.start_time = time.time()
         self._total_cases_fuzzed = 0
 
         try:
-            paths = self.agent.get_supported_paths(self.protocol.name)
+            paths = self._agent.get_supported_paths(self.protocol.name)
         except AgentError:
             return False
 
         result = self._fuzz_protocol(paths)
 
-        self.agent.on_shutdown()
+        self._agent.on_shutdown()
 
         self.end_time = time.time()
         return result
@@ -271,23 +319,34 @@ class Engine:
             seed: Seed value for the current epoch.
 
         Returns:
-            bool: `True` if the epoch is completed without errors, `False` otherwise.
+            `True` if the epoch is completed without errors, `False` otherwise.
         """
 
         try:
-            skipped = self.agent.skip_epoch(
+            skipped = self._agent.skip_epoch(
                 ExecutionContext(self.protocol.name, path))
         except AgentError as e:
             self._logger.error(str(e))
             if self._current_epoch is None:
-                self.agent.on_shutdown()
+                self._agent.on_shutdown()
             return False
 
         if skipped:
             self._logger.info("Epoch skipped by agents")
             if self._current_epoch is None:
-                self.agent.on_shutdown()
+                self._agent.on_shutdown()
             return False
+
+        self._logger.info("Starting epoch setup")
+        if self._current_epoch is None:
+            try:
+                self._setup_generic_run()
+            except SetupFailedError as e:
+                self._logger.error("%s", str(e))
+                self._logger.error("Epoch setup failed")
+                self._agent.on_shutdown()
+                return False
+        self._logger.info("Epoch setup completed")
 
         if self._current_epoch is not None:
             self._current_epoch += 1
@@ -309,7 +368,7 @@ class Engine:
             self._logger.info("Epoch #%s terminated", self._current_epoch)
         else:
             self._logger.info("Epoch terminated")
-            self.agent.on_shutdown()
+            self._agent.on_shutdown()
 
         return success
 
@@ -362,23 +421,48 @@ class Engine:
 
         return success
 
-    def _test_case_setup(self, ctx: ExecutionContext, attempt_count: int):
+    def _save_findings(self, data: list[tuple[str, bytes]]):
+        """Save the findings generated during the fuzzing process.
+
+        This function tries to save each finding in the `self._run_path` directory. If an error 
+        occurs for a specific finding record, it logs a warning and skips the record.
+
+        Args:
+            data: The list of findings, where each elements contains:
+                1. The name of the file.
+                2. The content of the file
+        """
+
+        for name, content in data:
+            finding_path = self._run_path / name
+            with opened_w_error(finding_path, "wb") as (f, err):
+                if err:
+                    self._logger.warning(
+                        "Failed to save '%s': %s", finding_path, str(err))
+                else:
+                    f.write(content)
+
+    def _test_case_setup(self, ctx: ExecutionContext):
         """Prepare everything for the execution of a test case.
 
         Arguments:
-            attempt_count: The number of the current attempt that is being run.
             ctx: The execution context to send to all the agents.
 
         Raises:
-            TestCaseExecutionError: If the test setup was not completed successfully.
+            SetupFailedError: If the test setup was not completed successfully.
         """
+
+        self._logger.info("Starting test case setup")
 
         part_of_epoch = self._epoch_cases_fuzzed is not None
 
+        if not part_of_epoch:
+            self._setup_generic_run()
+
         try:
-            self.agent.on_test_start(ctx)
+            self._agent.on_test_start(ctx)
         except AgentError as e:
-            raise TestCaseExecutionError(str(e)) from e
+            raise SetupFailedError(str(e)) from e
 
         for enc in self.encoders:
             enc.reset()
@@ -399,15 +483,9 @@ class Engine:
                     pub.stop()
                 except PublisherOperationError:
                     pass
-            raise TestCaseExecutionError(msg) from e
+            raise SetupFailedError(msg) from e
 
-        if part_of_epoch:
-            self._logger.info("Test case #%s started",
-                              self._epoch_cases_fuzzed+1)
-        else:
-            self._logger.info("Test case started")
-
-        self._logger.info("Attempt #%s", attempt_count)
+        self._logger.info("Test case setup completed")
 
     def _test_case_teardown(self):
         """Do everything that is necessary to clean up after the execution of a test case.
@@ -431,7 +509,7 @@ class Engine:
             self._logger.info("Test case stopped")
 
         try:
-            self.agent.on_test_end()
+            self._agent.on_test_end()
         except AgentError as e:
             raise TestCaseExecutionError(str(e)) from e
 
@@ -459,13 +537,28 @@ class Engine:
             self._logger.warning("Exhausted all attempts")
             return
 
-        ctx = ExecutionContext(self.protocol.name, path)
-        mutations_generated = False
-        fault_detected = False
         try:
-            self._test_case_setup(
-                self.max_attempts_of_test_redo-attempt_left+1, ctx)
+            self._test_case_setup(ExecutionContext(self.protocol.name, path))
+        except SetupFailedError as e:
+            self._logger.error("%s", str(e))
+            self._logger.error("Test case setup failed")
+            try:
+                self._test_case_teardown()
+            except TestCaseExecutionError:
+                pass
+            return False, False
 
+        if self._epoch_cases_fuzzed is not None:
+            self._logger.info("Test case #%s started",
+                              self._epoch_cases_fuzzed+1)
+        else:
+            self._logger.info("Test case started")
+        self._logger.info(
+            "Attempt #%s", self.max_attempts_of_test_redo-attempt_left+1)
+
+        fault_detected = False
+        mutations_generated = False
+        try:
             timestamp_last_message_sent = time.time()
             for msg in path:
                 pub = self.actors[msg.src]
@@ -557,7 +650,7 @@ class Engine:
                     continue
 
                 try:
-                    is_to_redo = self.agent.redo_test()
+                    is_to_redo = self._agent.redo_test()
                 except AgentError as e:
                     raise TestCaseExecutionError(str(e)) from e
 
@@ -573,7 +666,7 @@ class Engine:
                     continue
 
                 try:
-                    fault_detected = self.agent.fault_detected()
+                    fault_detected = self._agent.fault_detected()
                 except AgentError as e:
                     raise TestCaseExecutionError(str(e)) from e
 
@@ -581,11 +674,11 @@ class Engine:
                     self._logger.info("Fault detected")
 
                     try:
-                        data = self.agent.get_data()
+                        data = self._agent.get_data()
                     except AgentError as e:
                         raise TestCaseExecutionError(str(e)) from e
 
-                    # TODO: write the data somewhere
+                    self._save_findings(data)
 
             self._test_case_teardown()
         except TestCaseExecutionError as e:
@@ -650,16 +743,16 @@ class Engine:
         from pydoc import locate
 
         try:
-            skipped = self.agent.skip_epoch(
+            skipped = self._agent.skip_epoch(
                 ExecutionContext(self.protocol.name, path))
         except AgentError as e:
             self._logger.error(str(e))
-            self.agent.on_shutdown()
+            self._agent.on_shutdown()
             return
 
         if skipped:
             self._logger.info("Test skipped by agents due to skipped epoch")
-            self.agent.on_shutdown()
+            self._agent.on_shutdown()
             return
 
         mutation = (Mutation(locate(mutation_type),
@@ -670,9 +763,9 @@ class Engine:
         try:
             self._fuzz_single_test_case(path, mutation)
         except FuzzingEngineError as e:
-            self._logger.error(str(e))
+            self._logger.error("%s", str(e))
 
-        self.agent.on_shutdown()
+        self._agent.on_shutdown()
 
 
 __all__ = ['Engine']
