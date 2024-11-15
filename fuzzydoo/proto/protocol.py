@@ -152,12 +152,11 @@ class ProtocolPath(Path[ProtocolNode, ProtocolEdge]):
 
     @override
     def __iter__(self) -> Iterator[MessageNode]:
-        self.pos = 0
-        for edge in self.path:
+        for pos, edge in enumerate(self.path):
+            self.pos = pos
             if isinstance(edge.dst, MessageNode) \
                     and (self.actor is None or self.actor in (edge.dst.src, edge.dst.dst)):
                 yield edge.dst
-                self.pos += 1
         self.pos = None
 
 
