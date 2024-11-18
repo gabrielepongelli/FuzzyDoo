@@ -424,8 +424,10 @@ class Engine:
     def _save_findings(self, data: list[tuple[str, bytes]]):
         """Save the findings generated during the fuzzing process.
 
-        This function tries to save each finding in the `self._run_path` directory. If an error 
-        occurs for a specific finding record, it logs a warning and skips the record.
+        This function tries to save each finding in a new directory inside `self._run_path`. If an 
+        error occurs for a specific finding record, it logs a warning and skips the record. If 
+        instead an error occurs while creating the new directory, a warning message is logged and 
+        no data is saved.
 
         Args:
             data: The list of findings, where each elements contains:
@@ -433,8 +435,18 @@ class Engine:
                 2. The content of the file
         """
 
+        test_case_path = self._run_path / self._total_cases_fuzzed
+        try:
+            os.mkdir(test_case_path)
+        except OSError as e:
+            self._logger.warning(
+                "Could not create directory '%s': %s", test_case_path, e)
+            self._logger.warning(
+                "Skipping saving findings for the current test case")
+            return
+
         for name, content in data:
-            finding_path = self._run_path / name
+            finding_path = test_case_path / name
             with opened_w_error(finding_path, "wb") as (f, err):
                 if err:
                     self._logger.warning(
