@@ -6,7 +6,8 @@ from pycrate_core.utils import PycrateErr
 from pycrate_asn1rt.asnobj import ASN1Obj
 
 from ...mutator import Fuzzable, QualifiedNameFormatError, ContentNotFoundError, Mutator, mutable
-from ..message import MessageFactory, Message, MessageParsingError
+from ...utils.register import register
+from ..message import Message, MessageParsingError
 from .types import EnumType, IntType, map_type
 
 
@@ -207,9 +208,8 @@ for message_type in ngap.NGAP_PDU_Descriptions.NGAP_PDU._cont_tags.values():
         class_name = k + 'Message'
         class_bases = (NGAPMessage, )
         class_attrs = {"__init__": make_init(message_type, k)}
-        new_class = mutable(type(class_name, class_bases, class_attrs))
-
-        MessageFactory.register("NGAP", class_name, new_class)
+        new_class = register(Message, "NGAP")(
+            mutable(type(class_name, class_bases, class_attrs)))
 
         globals()[class_name] = new_class
         globals()['__all__'].append(class_name)

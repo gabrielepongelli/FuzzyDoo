@@ -8,8 +8,9 @@ from select import select
 import sctp
 
 from ..publisher import Publisher, PublisherOperationError
-from ..agent import ExecutionContext, AgentError
+from ..agent import Agent, ExecutionContext, AgentError
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread
+from ..utils.register import register
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 
@@ -616,6 +617,7 @@ class PublisherProxyAgent(Publisher):
         return hash(self._pub_id)
 
 
+@register(Agent)
 class SctpProxyAgent(GrpcClientAgent):
     """Agent that controls an SCTP proxy."""
 

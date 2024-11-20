@@ -4,8 +4,9 @@ from typing import override
 
 import scapy.all as scapy
 
-from ..agent import AgentError, ExecutionContext
+from ..agent import Agent, AgentError, ExecutionContext
 from ..utils.threads import EventStoppableThread
+from ..utils.register import register
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 
@@ -49,6 +50,7 @@ class SnifferThread(EventStoppableThread):
         self._socket.close()
 
 
+@register(Agent)
 class NetworkSnifferAgent(GrpcClientAgent):
     """Agent that sniff packets on the server."""
 

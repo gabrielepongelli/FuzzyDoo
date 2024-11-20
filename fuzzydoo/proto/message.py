@@ -1,62 +1,22 @@
 from abc import abstractmethod
-from typing import Any, Type
+from typing import Any
 
 from ..mutator import Fuzzable
 from ..mutator import mutable
 from ..utils.errs import FuzzyDooError
+from ..utils.register import ClassRegister
 
 
 class MessageError(FuzzyDooError):
     """Generic error for the `Message` interface."""
 
 
-class UnknownMessageError(FuzzyDooError):
+class UnknownMessageError(MessageError):
     """Exception raised when an unknown message type is encountered."""
 
 
 class MessageParsingError(MessageError):
     """Exception raised when an error occurs while parsing a message."""
-
-
-class MessageFactory:
-    """Factory that creates messages based on the protocol name and the message name."""
-
-    _msg_classes: dict[str, dict[str, Type["Message"]]] = {}
-
-    @classmethod
-    def get(cls, protocol: str, message: str) -> "Message":
-        """Get the message instance with the given name in the given protocol.
-
-        Args:
-            protocol: Name of the protocol the message belongs to.
-            message: Name of the message to retrieve.
-
-        Returns:
-            Message: The message with the given name.
-
-        Raises:
-            UnknownMessageError: If no message with the given name exists in the given protocol.
-        """
-
-        try:
-            return cls._msg_classes[protocol][message]()
-        except KeyError as e:
-            raise UnknownMessageError(
-                f"Unknown message type '{message}' in protocol '{protocol}'") from e
-
-    @classmethod
-    def register(cls, protocol: str, message: str, msg_class: Type["Message"]):
-        """Register a new message class.
-
-        Args:
-            protocol: Name of the protocol the new message class belongs to.
-            message: Name of the new message to register.
-            msg_class: The class of the new message to register.
-        """
-
-        proto_dict = cls._msg_classes.get(protocol, {})
-        proto_dict[message] = msg_class
-        cls._msg_classes[protocol] = proto_dict
 
 
 @mutable
@@ -86,7 +46,11 @@ class Message(Fuzzable):
             UnknownMessageError: If no message with the given name exists in the given protocol.
         """
 
-        return MessageFactory.get(protocol, name)
+        try:
+            return ClassRegister["Message"].get('Message', protocol, name)()
+        except ValueError as e:
+            raise UnknownMessageError(
+                f"Unknown message '{name}' in protocol '{protocol}'") from e
 
     def __init__(self, protocol: str, name: str = "", content: Fuzzable | None = None, delay: int = 0, n_replay: int = 1):
         """Initialize a `Message` object.

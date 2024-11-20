@@ -6,6 +6,7 @@ from enum import Enum
 from typing import override
 from collections.abc import Callable, Iterator
 
+from ...utils.register import register
 from ..protocol import MessageNode, Protocol, EdgeTag, ProtocolEdge, ProtocolNode, ProtocolPath
 from .messages import *
 
@@ -37,6 +38,7 @@ class CapabilityNode(ProtocolNode):
     capability: str
 
 
+@register(Protocol)
 class NGAPProtocol(Protocol):
     """A protocol with methods specialized for the NGAP Protocol.
 

@@ -13,8 +13,9 @@ from more_itertools import first_true
 
 import yaml
 
-from ..agent import AgentError, ExecutionContext
+from ..agent import Agent, AgentError, ExecutionContext
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread, with_thread_safe_get_set
+from ..utils.register import register
 from ..proto.protocol import ProtocolPath
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
@@ -542,6 +543,7 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
         self._cleanup()
 
 
+@register(Agent)
 class UERANSIMControllerAgent(GrpcClientAgent):
     """Agent that controls the UERANSIM tools."""
 

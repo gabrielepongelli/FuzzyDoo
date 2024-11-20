@@ -4,10 +4,15 @@ from dataclasses import dataclass
 
 from .proto.protocol import ProtocolPath
 from .utils.errs import FuzzyDooError
+from .utils.register import ClassRegister
 
 
 class AgentError(FuzzyDooError):
     """Generic error for the `Agent` interface."""
+
+
+class UnknownAgentError(AgentError):
+    """Exception raised when an unknown agent type is encountered."""
 
 
 @dataclass
@@ -83,6 +88,29 @@ class Agent:
         wait_start_time: Seconds to wait after calling `on_test_start` before continuing. This can 
             be useful if an agent requires some time to start.
     """
+
+    @classmethod
+    def from_name(cls, name: str, *args, **kwargs) -> "Agent":
+        """Create a new `Agent` instance from the specified name.
+
+        Args:
+            name: The name of the agent to instanciate.
+            args: Additional positional arguments that will be passed directly to the constructor 
+                of the specified agent.
+            kwargs: Additional keyword arguments that will be passed directly to the constructor of 
+                the specified agent.
+
+        Returns:
+            Agent: An instance of the specified agent.
+
+        Raises:
+            UnknownAgentError: If no agent with the given name exists.
+        """
+
+        try:
+            return ClassRegister["Agent"].get('Agent', name)(*args, **kwargs)
+        except ValueError as e:
+            raise UnknownAgentError(f"Unknown agent '{name}'") from e
 
     # pylint: disable=unused-argument
     def __init__(self, name: str | None = None, wait_start_time: float = 0.0, **kwargs):

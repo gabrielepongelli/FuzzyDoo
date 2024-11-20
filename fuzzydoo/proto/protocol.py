@@ -5,6 +5,7 @@ from enum import Flag, auto
 
 from .message import Message
 from ..utils.graph import Graph, Node, Edge, Path
+from ..utils.register import ClassRegister
 
 
 class ProtocolError(Exception):
@@ -13,6 +14,10 @@ class ProtocolError(Exception):
 
 class InvalidPathError(ProtocolError):
     """Error raised when the provided path is invalid."""
+
+
+class UnknownProtocolError(ProtocolError):
+    """Exception raised when an unknown protocol type is encountered."""
 
 
 @dataclass
@@ -177,6 +182,25 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge, ProtocolPath]):
         root: The root node of the protocol graph.
         actors: The names of all the actors involved in the protocol.
     """
+
+    @classmethod
+    def from_name(cls, name: str) -> "Protocol":
+        """Create a new `Protocol` instance from the specified name.
+
+        Args:
+            name: The name of the protocol to instanciate.
+
+        Returns:
+            Protocol: An instance of the specified protocol.
+
+        Raises:
+            UnknownProtocolError: If no protocol with the given name exists.
+        """
+
+        try:
+            return ClassRegister["Protocol"].get('Protocol', name)()
+        except ValueError as e:
+            raise UnknownProtocolError(f"Unknown protocol '{name}'") from e
 
     def __init__(self, name: str):
         """Initializes the `Protocol` instance with a given name and creates a root node.

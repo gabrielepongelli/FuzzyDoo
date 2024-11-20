@@ -2,10 +2,12 @@ import logging
 import subprocess
 from typing import override
 
-from ..agent import AgentError, ExecutionContext
+from ..agent import Agent, AgentError, ExecutionContext
+from ..utils.register import register
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 
+@register(Agent)
 class ComposeRestartAgent(GrpcClientAgent):
     """Agent that restarts all the docker containers in a docker compose setup."""
 
