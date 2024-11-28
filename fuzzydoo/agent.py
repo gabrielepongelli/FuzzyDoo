@@ -452,7 +452,7 @@ class AgentMultiplexer:
                 new_data = agent.get_data()
                 if len(new_data) > 0:
                     for i, record in enumerate(new_data):
-                        data[i] = (agent.name + "." + record[0], record[1])
+                        new_data[i] = (agent.name + "." + record[0], record[1])
                 data += new_data
             except AgentError as e:
                 self._handle_error(agent, e)
