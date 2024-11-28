@@ -1,16 +1,19 @@
 import logging
 import io
+import subprocess
+import socket
 from typing import override
+from queue import Queue, ShutDown
 
 import scapy.all as scapy
 
 from ..agent import Agent, AgentError, ExecutionContext
-from ..utils.threads import EventStoppableThread
+from ..utils.threads import EventStoppableThread, ExceptionRaiserThread
 from ..utils.register import register
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 
-class SnifferThread(EventStoppableThread):
+class SnifferThread(EventStoppableThread, ExceptionRaiserThread):
     """Thread class that sniffs packets."""
 
     # pylint: disable=redefined-builtin
@@ -21,11 +24,11 @@ class SnifferThread(EventStoppableThread):
 
         self._iface = iface
         self._filter = filter
-        self.packets: scapy.PacketList | None = None
+        self.packets: Queue = Queue()
         self.exception: Exception | None = None
 
     @override
-    def run(self):
+    def handled_run(self):
         args = {
             'type': scapy.ETH_P_ALL,
             'iface': self._iface
@@ -35,16 +38,21 @@ class SnifferThread(EventStoppableThread):
 
         try:
             self._socket = scapy.conf.L2listen(**args)
-            self.packets = scapy.sniff(
+            scapy.sniff(
                 opened_socket=self._socket,
-                prn=lambda x: x.sniffed_on + ": " + x.summary(),
-                stop_filter=self._should_stop_sniffer
+                prn=self._on_packet,
+                stop_filter=self._should_stop_sniffer,
+                store=0
             )
-        except scapy.Scapy_Exception as e:
-            self.exception = e
+        except ShutDown:
+            pass
 
-    def _should_stop_sniffer(self, _):
-        return self.stop_event.is_set()
+    def _on_packet(self, packet: scapy.Packet) -> str:
+        self.packets.put_nowait(packet)
+        return packet.sniffed_on + ": " + packet.summary()
+
+    def _should_stop_sniffer(self, _) -> bool:
+        return self.stop_event.is_set() or self.packets.is_shutdown
 
     def force_close(self):
         self._socket.close()
@@ -63,10 +71,10 @@ class NetworkSnifferAgent(GrpcClientAgent):
 
         Args:
             kwargs: Additional keyword arguments. It must contain the following keys:
-                'iface' (optional): The name of the interface or a list of interface names to 
+                - `'iface'` (optional): The name of the interface or a list of interface names to 
                     capture. Defaults to `"any"`.
-                'filter' (optional): String specifying a filter to apply to the data being logged. 
-                    See https://biot.com/capstats/bpf.html. Defaults to `None`.
+                - `'filter'` (optional): String specifying a filter to apply to the data being 
+                    logged. See ![here](https://biot.com/capstats/bpf.html). Defaults to `None`.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -127,7 +135,6 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
         self._iface: str | list[str] = kwargs.get('iface', 'any')
         self._filter: str | None = kwargs.get('filter', None)
         self._sniffer: SnifferThread | None = None
-        self._packets: scapy.PacketList | None = None
 
     @override
     def set_options(self, **kwargs):
@@ -142,14 +149,27 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
 
     @override
     def on_test_start(self, ctx: ExecutionContext):
-        self._packets = None
+        try:
+            socket.if_nametoindex(self._iface)
+        except OSError as e:
+            err_msg = f"Interface '{self._iface}' not found"
+            logging.error(err_msg)
+            raise AgentError(err_msg) from e
+
+        try:
+            p: subprocess.Popen = scapy.tcpdump(flt=self._filter, getproc=True)
+            p.kill()
+        except scapy.Scapy_Exception as e:
+            err_msg = f"Invalid filter '{self._filter}'"
+            logging.error(err_msg)
+            raise AgentError(err_msg) from e
+
         self._sniffer = SnifferThread(self._iface, self._filter)
         self._sniffer.start()
 
-    @override
-    def on_test_end(self):
+    def _stop_thread(self):
         if self._sniffer is not None:
-            self._sniffer.join()
+            self._sniffer.join(timeout=0.1)
             if self._sniffer.is_alive():
                 self._sniffer.force_close()
 
@@ -158,13 +178,25 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
                 logging.error(err_msg)
                 raise AgentError(err_msg) from self._sniffer.exception
 
-            self._packets = self._sniffer.packets
             self._sniffer = None
 
     @override
+    def on_test_end(self):
+        self._stop_thread()
+
+    @override
     def get_data(self) -> list[tuple[str, bytes]]:
-        if self._packets is None:
+        if self._sniffer is None:
             return []
+
+        if self._sniffer.exception is not None:
+            err_msg = str(self._sniffer.exception).strip()
+            logging.error(err_msg)
+            raise AgentError(err_msg) from self._sniffer.exception
+
+        packets: list[scapy.Packet] = []
+        while not self._sniffer.packets.empty():
+            packets.append(self._sniffer.packets.get_nowait())
 
         name = f"{self._iface}.pcap"
         pcap_bytes_io = io.BytesIO()
@@ -172,7 +204,7 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
         # this is needed because wrpcap calls close() at the end
         close_fn = pcap_bytes_io.close
         pcap_bytes_io.close = lambda: None
-        scapy.wrpcap(pcap_bytes_io, self._packets)
+        scapy.wrpcap(pcap_bytes_io, packets)
 
         pcap_bytes_io.close = close_fn
         res = [(name, pcap_bytes_io.getvalue())]
@@ -181,15 +213,7 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
 
     @override
     def on_shutdown(self):
-        if self._sniffer is not None:
-            self._sniffer.join()
-            if self._sniffer.is_alive():
-                self._sniffer.force_close()
-
-            if self._sniffer.exception is not None:
-                err_msg = str(self._sniffer.exception).strip()
-                logging.error(err_msg)
-                raise AgentError(err_msg) from self._sniffer.exception
+        self._stop_thread()
 
 
 __all__ = ['NetworkSnifferAgent']
@@ -210,7 +234,7 @@ def main():
     if os.geteuid() != 0:
         sys.stderr.write(
             "You need root permissions to run this script. To solve this problem execute this script like this:\n\n")
-        sys.stderr.write("\tsudo $(which pcap-logger)\n\n")
+        sys.stderr.write("\tsudo $(which network-sniffer)\n\n")
         sys.exit(1)
 
     if not args.ip or not args.port:
