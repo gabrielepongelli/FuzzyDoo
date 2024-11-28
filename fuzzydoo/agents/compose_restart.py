@@ -159,6 +159,9 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         self._restart_compose()
 
 
+__all__ = ['ComposeRestartAgent']
+
+
 def main():
     import argparse
     import sys

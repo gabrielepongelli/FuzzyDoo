@@ -124,6 +124,9 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
         raise AgentError("Unexpected output: " + is_running)
 
 
+__all__ = ['ContainerMonitorAgent']
+
+
 def main():
     import argparse
     import sys

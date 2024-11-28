@@ -21,14 +21,14 @@ class GrpcClientAgent(Agent):
             wait_start_time (optional): Seconds to wait after calling `on_test_start` before 
                 continuing. Defaults to `0.0`.
             kwargs: Additional parameters. It must contain the following keys:
-                'address': A string representing the IP address of the gRPC server.
+                'ip': A string representing the IP address of the gRPC server.
                 'port': A number representing the port the gRPC server is listening on.
         """
 
         super().__init__(name, wait_start_time, **kwargs)
 
         self._channel = grpc.insecure_channel(
-            f"{kwargs['address']}:{kwargs['port']}")
+            f"{kwargs['ip']}:{kwargs['port']}")
         self._stub = AgentServiceStub(self._channel)
 
     @override

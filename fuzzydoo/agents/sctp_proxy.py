@@ -18,7 +18,9 @@ RECV_BUFF_LEN = 4096
 SELECT_TIMEOUT = 0.1
 
 PUBLISHER_SOURCE_ID = 1
+PUBLISHER_SOURCE_NAME = 'source'
 PUBLISHER_TARGET_ID = 2
+PUBLISHER_TARGET_NAME = 'target'
 
 
 # since sctp.sctpsocket is not well type-hinted, in this way we can have correct type hints also
@@ -621,6 +623,21 @@ class PublisherProxyAgent(Publisher):
 class SctpProxyAgent(GrpcClientAgent):
     """Agent that controls an SCTP proxy."""
 
+    @override
+    @property
+    def actors(self) -> list[str]:
+        return [PUBLISHER_SOURCE_NAME, PUBLISHER_TARGET_NAME]
+
+    @override
+    def get(self, actor: str) -> Publisher | None:
+        if actor == PUBLISHER_SOURCE_NAME:
+            return self.get_source()
+
+        if actor == PUBLISHER_TARGET_NAME:
+            return self.get_target()
+
+        return None
+
     def get_source(self) -> Publisher:
         """Get the source endpoint of the SCTP proxy.
 
@@ -809,6 +826,9 @@ class SctpProxyServerAgent(GrpcServerAgent):
             return self._publisher_map[pub_id].data_available()
         except PublisherOperationError as e:
             raise AgentError(str(e)) from e
+
+
+__all__ = ['SctpProxyAgent']
 
 
 def main():

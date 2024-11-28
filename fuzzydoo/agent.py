@@ -3,6 +3,7 @@ import time
 from dataclasses import dataclass
 
 from .proto.protocol import ProtocolPath
+from .publisher import PublisherSource
 from .utils.errs import FuzzyDooError
 from .utils.register import ClassRegister
 
@@ -26,7 +27,7 @@ class ExecutionContext:
     """The specific protocol path on which the agent method is invoked."""
 
 
-class Agent:
+class Agent(PublisherSource):
     """A remote or local agent.
 
     Agents are independent programs running somewhere (in the same machine or not).
@@ -556,3 +557,7 @@ class AgentMultiplexer:
             except AgentError as e:
                 self._logger.warning(
                     "Error from agent %s: %s", agent.name, str(e))
+
+
+# so that all agent classes are created
+from .agents import *

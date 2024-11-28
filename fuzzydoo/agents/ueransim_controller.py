@@ -767,6 +767,9 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
         return self.orchestrator.is_error_occurred and not self.orchestrator.is_error_recoverable
 
 
+__all__ = ['UERANSIMControllerAgent']
+
+
 def main():
     import os
     import argparse

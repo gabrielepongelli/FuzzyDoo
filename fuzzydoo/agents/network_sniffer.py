@@ -37,7 +37,7 @@ class SnifferThread(EventStoppableThread):
             self._socket = scapy.conf.L2listen(**args)
             self.packets = scapy.sniff(
                 opened_socket=self._socket,
-                prn=lambda x: x.sniffed_on+": "+x.summary(),
+                prn=lambda x: x.sniffed_on + ": " + x.summary(),
                 stop_filter=self._should_stop_sniffer
             )
         except scapy.Scapy_Exception as e:
@@ -190,6 +190,9 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
                 err_msg = str(self._sniffer.exception).strip()
                 logging.error(err_msg)
                 raise AgentError(err_msg) from self._sniffer.exception
+
+
+__all__ = ['NetworkSnifferAgent']
 
 
 def main():

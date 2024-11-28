@@ -111,4 +111,36 @@ class Publisher(ABC):
         pass
 
 
-__all__ = ['Publisher', 'PublisherError', 'PublisherOperationError', 'UnknownPublisherError']
+class PublisherSource:
+    """A class that manages and provides access to multiple publishers associated with actors.
+
+    The `PublisherSource` class serves as a container and manager for multiple `Publisher` 
+    instances, each associated with a specific actor. It provides methods to retrieve the list of 
+    actors and to get the `Publisher` instance for a given actor.
+
+    This class is useful in scenarios where multiple actors need to communicate through different 
+    publishers, and a centralized management of these publishers is required.
+    """
+
+    @property
+    def actors(self) -> list[str]:
+        """Get the list of actors associated with this publisher source."""
+
+        return []
+
+    def get(self, actor: str) -> Publisher | None:
+        """Get the publisher associated with the given actor name.
+
+        Args:
+            actor: Name of the actor to get the publisher for.
+
+        Returns:
+            Publisher | None: An instance of `Publisher` if the actor specified is in the list of 
+                associated actors (see `actors`), `None` otherwise.
+        """
+
+        return None
+
+
+__all__ = ['Publisher', 'PublisherSource', 'PublisherError', 'UnknownPublisherError',
+           'PublisherOperationError']
