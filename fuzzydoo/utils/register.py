@@ -110,7 +110,8 @@ class ClassRegister(Generic[RegistrableT]):
             update: RegisterT = {name: registrable}
         else:
             update: RegisterT = {args[-1]: registrable}
-            for arg in args[:-1:-1]:
+            args = args[:-1]
+            for arg in args[::-1]:
                 update = {arg: update}
             update = {name: update}
 
