@@ -118,7 +118,7 @@ class ClassRegister(Generic[RegistrableT]):
             cls._registered_classes, update)
 
 
-def register(name: str | type, *args) -> Callable[[RegistrableT], RegistrableT]:
+def register(name: str | type, *args, append_name: bool = True) -> Callable[[RegistrableT], RegistrableT]:
     """Decorator that registers a class in the specified category.
 
     This decorator works together with the `ClassRegister` class to register a class under a 
@@ -130,6 +130,8 @@ def register(name: str | type, *args) -> Callable[[RegistrableT], RegistrableT]:
         *args: Additional classification arguments that further specify the subcategories for the 
             class registration. The name of the decorated class is automatically appended as the 
             last argument.
+        append_name (optional): Whether to automatically append the name of the decorated class as 
+            the last argument of `args`. Defaults to `True`.
 
     Returns:
         Callable[[RegistrableT], RegistrableT]: A decorator function that registers the class and 
@@ -142,7 +144,9 @@ def register(name: str | type, *args) -> Callable[[RegistrableT], RegistrableT]:
         if isinstance(name, type):
             name = name.__name__
 
-        args = args + (cls.__name__,)
+        if append_name:
+            args = args + (cls.__name__,)
+
         ClassRegister.register(cls, name, *args)
         return cls
 

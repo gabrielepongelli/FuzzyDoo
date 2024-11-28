@@ -38,7 +38,7 @@ class CapabilityNode(ProtocolNode):
     capability: str
 
 
-@register(Protocol)
+@register(Protocol, 'NGAP', append_name=False)
 class NGAPProtocol(Protocol):
     """A protocol with methods specialized for the NGAP Protocol.
 
