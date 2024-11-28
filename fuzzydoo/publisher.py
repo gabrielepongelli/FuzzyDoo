@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 from .utils.errs import FuzzyDooError
+from .utils.register import ClassRegister
 
 
 class PublisherError(FuzzyDooError):
@@ -9,6 +10,10 @@ class PublisherError(FuzzyDooError):
 
 class PublisherOperationError(PublisherError):
     """Exception raised when a publisher encounters an error during send/receive operations."""
+
+
+class UnknownPublisherError(PublisherError):
+    """Exception raised when an unknown publisher type is encountered."""
 
 
 class Publisher(ABC):
@@ -21,6 +26,29 @@ class Publisher(ABC):
     Subclasses must implement the `start`, `stop`, `send`, `receive`, and `data_available` methods 
     to provide specific functionality.
     """
+
+    @classmethod
+    def from_name(cls, name: str, *args, **kwargs) -> "Publisher":
+        """Create a new `Publisher` instance from the specified name.
+
+        Args:
+            name: The name of the publisher to instanciate.
+            args: Additional positional arguments that will be passed directly to the constructor 
+                of the specified publisher.
+            kwargs: Additional keyword arguments that will be passed directly to the constructor of 
+                the specified publisher.
+
+        Returns:
+            Publisher: An instance of the specified publisher.
+
+        Raises:
+            UnknownPublisherError: If no publisher with the given name exists.
+        """
+
+        try:
+            return ClassRegister["Publisher"].get('Publisher', name)(*args, **kwargs)
+        except ValueError as e:
+            raise UnknownPublisherError(f"Unknown agent '{name}'") from e
 
     @abstractmethod
     def start(self):
@@ -83,4 +111,4 @@ class Publisher(ABC):
         pass
 
 
-__all__ = ['Publisher', 'PublisherError', 'PublisherOperationError']
+__all__ = ['Publisher', 'PublisherError', 'PublisherOperationError', 'UnknownPublisherError']
