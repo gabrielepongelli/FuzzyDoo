@@ -340,7 +340,6 @@ class AgentMultiplexer:
         """Initialize an instance of `AgentMultiplexer`."""
 
         self._agents: list[Agent] = []
-        self._logger = logging.getLogger('agent')
 
     def add_agent(self, agent: Agent):
         """Add a new agent to the multiplexer.
@@ -350,7 +349,18 @@ class AgentMultiplexer:
         """
 
         self._agents.append(agent)
-        self._logger.info('Added agent %s', agent.name)
+
+    def _log_for(self, agent: Agent) -> logging.Logger:
+        """Get the logger for a specific agent.
+
+        Args:
+            agent: The agent for which the logger is needed.
+
+        Returns:
+            logging.Logger: The logger for the specified agent.
+        """
+
+        return logging.getLogger(agent.name)
 
     def _handle_error(self, agent: Agent, e: AgentError):
         """Handle errors raised by agents.
@@ -365,11 +375,9 @@ class AgentMultiplexer:
             AgentError: If the agent signaled an unrecoverable error.
         """
 
-        self._logger.warning(
-            "Error from agent %s: %s", agent.name, str(e))
+        self._log_for(agent).warning("%s", str(e))
         if agent.stop_execution():
-            self._logger.error(
-                "Agent %s signaled an unrecoverable error", agent.name)
+            self._log_for(agent).critical("Unrecoverable error: %s", str(e))
             raise AgentError(f"Agent {agent.name}: {str(e)}") from e
 
     def get_supported_paths(self, protocol: str) -> list[list[str]]:
@@ -386,8 +394,6 @@ class AgentMultiplexer:
         Raises:
             AgentError: If any of the agents wants to stop the execution.
         """
-
-        self._logger.debug('Get supported paths')
 
         paths = []
         for agent in self._agents:
@@ -407,8 +413,6 @@ class AgentMultiplexer:
             AgentError: If any of the agents wants to stop the execution.
         """
 
-        self._logger.debug('On test start')
-
         for agent in self._agents:
             try:
                 agent.on_test_start(ctx)
@@ -426,8 +430,6 @@ class AgentMultiplexer:
             AgentError: If any of the agents wants to stop the execution.
         """
 
-        self._logger.debug('On test end')
-
         for agent in self._agents[::-1]:
             try:
                 agent.on_test_end()
@@ -443,8 +445,6 @@ class AgentMultiplexer:
         Raises:
             AgentError: If any of the agents wants to stop the execution.
         """
-
-        self._logger.debug('Get data')
 
         data = []
         for agent in self._agents:
@@ -469,14 +469,11 @@ class AgentMultiplexer:
             AgentError: If any of the agents wants to stop the execution.
         """
 
-        self._logger.debug('Skip test')
-
         skip = False
         for agent in self._agents:
             try:
                 new_skip = agent.skip_epoch(ctx)
-                self._logger.debug('Agent %s: skip = %s',
-                                   agent.name, 'yes' if new_skip else 'no')
+                self._log_for(agent).debug('Skip = %s', 'yes' if new_skip else 'no')
                 skip = skip or new_skip
             except AgentError as e:
                 self._handle_error(agent, e)
@@ -493,14 +490,11 @@ class AgentMultiplexer:
             AgentError: If any of the agents wants to stop the execution.
         """
 
-        self._logger.debug('Redo test')
-
         redo = False
         for agent in self._agents:
             try:
                 new_redo = agent.redo_test()
-                self._logger.debug('Agent %s: redo = %s',
-                                   agent.name, 'yes' if new_redo else 'no')
+                self._log_for(agent).debug('Redo = %s', 'yes' if new_redo else 'no')
                 redo = redo or new_redo
             except AgentError as e:
                 self._handle_error(agent, e)
@@ -517,14 +511,11 @@ class AgentMultiplexer:
             AgentError: If any of the agents wants to stop the execution.
         """
 
-        self._logger.debug('Fault detected')
-
         fault = False
         for agent in self._agents:
             try:
                 new_fault = agent.fault_detected()
-                self._logger.debug('Agent %s: fault = %s',
-                                   agent.name, 'yes' if new_fault else 'no')
+                self._log_for(agent).debug('Fault = %s', 'yes' if new_fault else 'no')
                 fault = fault or new_fault
             except AgentError as e:
                 self._handle_error(agent, e)
@@ -538,8 +529,6 @@ class AgentMultiplexer:
             AgentError: If any of the agents wants to stop the execution.
         """
 
-        self._logger.debug('On fault')
-
         for agent in self._agents:
             try:
                 agent.on_fault()
@@ -549,14 +538,11 @@ class AgentMultiplexer:
     def on_shutdown(self):
         """Executes `on_shutdown` for each agent in the multiplexer."""
 
-        self._logger.debug('On shutdown')
-
         for agent in self._agents:
             try:
                 agent.on_shutdown()
             except AgentError as e:
-                self._logger.warning(
-                    "Error from agent %s: %s", agent.name, str(e))
+                self._log_for(agent).warning("%s", str(e))
 
 
 # so that all agent classes are created
