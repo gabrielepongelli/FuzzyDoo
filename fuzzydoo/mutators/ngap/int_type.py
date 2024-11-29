@@ -59,12 +59,8 @@ class IntRandomMutator(Mutator):
             tuple[int, int]: A tuple of the form [lower_bound, upper_bound).
         """
 
-        range_limits = (r.lb, r.ub)
-        if not r.lb_incl:
-            range_limits = (range_limits[0]-1, range_limits[1])
-        if r.ub_incl:
-            range_limits = (range_limits[0], range_limits[1]+1)
-        return range_limits
+        # bounds are included for int ranges
+        return (r.lb, r.ub + 1)
 
     def _mutate(self, data: IntType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
@@ -193,8 +189,8 @@ class IntEdgeMutator(Mutator):
                 [upper_bound-3, upper_bound).
         """
 
-        possible_values = list(range(lower_bound, lower_bound+3))
-        possible_values += list(range(upper_bound-3, upper_bound))
+        possible_values = list(range(lower_bound, lower_bound + 3))
+        possible_values += list(range(upper_bound - 3, upper_bound))
         return possible_values
 
     def _generate_from_range(self, r: ASN1Range) -> list[int]:
@@ -208,13 +204,8 @@ class IntEdgeMutator(Mutator):
                 [upper_bound-2, upper_bound+2].
         """
 
-        curr_range = (r.lb, r.ub)
-        if not r.lb_incl:
-            curr_range = (curr_range[0]-1, curr_range[1])
-        if r.ub_incl:
-            curr_range = (curr_range[0], curr_range[1]+1)
-
-        return self._generate_values_from_limits(*curr_range)
+        # bounds are included for int ranges
+        return self._generate_values_from_limits(r.lb, r.ub + 1)
 
     def _mutate(self, data: IntType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
