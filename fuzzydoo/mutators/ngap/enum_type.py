@@ -44,7 +44,7 @@ class EnumMutator(Mutator):
             rand.setstate(state['rand_state'])
             possible_values = state['possible_values']
         elif set_state:
-            self._possible_values = data.possible_values
+            self._possible_values = possible_values = data.possible_values
 
         value = rand.choice(possible_values)
 
