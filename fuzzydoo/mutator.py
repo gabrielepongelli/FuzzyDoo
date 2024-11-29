@@ -207,7 +207,13 @@ class Mutation:
         mutated_val = mutator.mutate(
             data, state=self.mutator_state).mutated_value
 
-        qname = data.name if self.field_name == "" else data.name + '.' + self.field_name
+        if self.field_name == "":
+            qname = data.name
+        elif self.field_name.startswith(data.name):
+            qname = self.field_name
+        else:
+            qname = f"{data.name}.{self.field_name}"
+
         data.set_content(qname, mutated_val)
         return data
 
