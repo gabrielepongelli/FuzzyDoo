@@ -8,7 +8,7 @@ from pycrate_asn1rt.asnobj import ASN1Obj
 from ...mutator import Fuzzable, QualifiedNameFormatError, ContentNotFoundError, Mutator, mutable
 from ...utils.register import register
 from ..message import Message, MessageParsingError
-from .types import EnumType, IntType, map_type
+from .types import ASN1Type, EnumType, IntType, map_type
 
 
 @mutable
@@ -144,6 +144,8 @@ class NGAPMessage(Message):
         full_path = self._restore_path(parts[1:])
         if full_path in self._leaf_paths:
             # first try to search in the message content
+            if isinstance(value, ASN1Type):
+                value = value.value
             self._content.set_val_at(full_path, value)
         elif len(parts) == 2 and hasattr(self, str(parts[1])) and str(parts[1]) != 'content':
             # then try with some other attributes from the parent class
