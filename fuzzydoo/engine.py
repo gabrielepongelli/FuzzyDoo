@@ -406,8 +406,6 @@ class Engine:
                     "An error occurred while generating the mutations")
             return success
 
-        self._epoch_cases_fuzzed = 0
-
         # otherwise, run a test case for each mutation
         for mutation in self._epoch_mutations:
             success, fault_found = self._fuzz_single_test_case(path, mutation)
