@@ -544,7 +544,7 @@ class Engine:
         """
 
         if attempt_left is None:
-            attempt_left = self.max_test_cases_per_epoch
+            attempt_left = self.max_attempts_of_test_redo
 
         if attempt_left == 0:
             self._logger.warning("Exhausted all attempts")
