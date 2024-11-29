@@ -57,7 +57,7 @@ class DelayedMessageMutator(Mutator):
         if update_state:
             self._delay_values.remove(value)
             self._rand.setstate(rand.getstate())
-            if len(self._delay_values[1]) == 0:
+            if len(self._delay_values) == 0:
                 raise MutatorCompleted()
         else:
             return Mutation(mutator=type(self),
@@ -118,7 +118,7 @@ class ReplayedMessageMutator(Mutator):
         if update_state:
             self._reply_values.remove(value)
             self._rand.setstate(rand.getstate())
-            if len(self._reply_values[1]) == 0:
+            if len(self._reply_values) == 0:
                 raise MutatorCompleted()
         else:
             return Mutation(mutator=type(self),
