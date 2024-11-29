@@ -219,7 +219,7 @@ class IntEdgeMutator(Mutator):
         rand.setstate(self._rand.getstate())
         possible_values = self._possible_values
 
-        if possible_values is not None:
+        if state is not None:
             rand.setstate(state['rand_state'])
             possible_values = state['possible_values']
         elif data and data.constraints and 'val' in data.constraints:
