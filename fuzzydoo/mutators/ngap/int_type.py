@@ -83,7 +83,7 @@ class IntRandomMutator(Mutator):
             extracted_values = state.get('extracted_values', None)
             possible_values = state.get('possible_values', None)
         elif set_state:
-            if data.constraints and 'val' in data.constraints:
+            if data and data.constraints and 'val' in data.constraints:
                 # try to read the range limits from the data
                 ranges = data.constraints['val'].root
 
@@ -222,7 +222,7 @@ class IntEdgeMutator(Mutator):
         if possible_values is not None:
             rand.setstate(state['rand_state'])
             possible_values = state['possible_values']
-        elif data.constraints and 'val' in data.constraints:
+        elif data and data.constraints and 'val' in data.constraints:
             # try to read the range limits from the data
             ranges = data.constraints['val'].root
             possible_values = []

@@ -75,7 +75,7 @@ class BitStrMutator(Mutator):
             extracted_values = state.get('extracted_values', None)
             possible_values = state.get('possible_values', None)
         elif set_state:
-            if data.constraints and 'sz' in data.constraints:
+            if data and data.constraints and 'sz' in data.constraints:
                 # try to read the range limits from the data
                 bit_len = data.constraints['sz'].root[0]
                 range_limits = (0, 2**bit_len)
@@ -189,7 +189,7 @@ class OctStrMutator(Mutator):
             extracted_values = state.get('extracted_values', None)
             possible_values = state.get('possible_values', None)
         elif set_state:
-            if data.constraints and 'sz' in data.constraints:
+            if data and data.constraints and 'sz' in data.constraints:
                 # try to read the range limits from the data
                 size = data.constraints['sz'].root[0]
                 if size == 1:
@@ -328,7 +328,7 @@ class GenericStrMutator(Mutator):
             size = state.get('size', None)
         elif set_state:
             codec = data.codec
-            if data.constraints and 'sz' in data.constraints:
+            if data and data.constraints and 'sz' in data.constraints:
                 # try to read the range limits from the data
                 size = data.constraints['sz'].root[0]
                 extracted_values = set()
@@ -412,7 +412,7 @@ class AlphabetStringMutator(Mutator):
             extracted_values = state['extracted_values']
             size = state.get('size', None)
         elif set_state:
-            if data.constraints and 'sz' in data.constraints:
+            if data and data.constraints and 'sz' in data.constraints:
                 # try to read the range limits from the data
                 size = data.constraints['sz'].root[0]
 
