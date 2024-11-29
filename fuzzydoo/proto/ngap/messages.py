@@ -41,13 +41,13 @@ class NGAPMessage(Message):
     def procedure_code(self) -> IntType:
         """The procedure code of this NGAP message."""
 
-        return self.get_content(self.name+'.procedureCode')
+        return self.get_content(self.name + '.procedureCode')
 
     @property
     def criticality(self) -> EnumType:
         """The criticality level of this NGAP message."""
 
-        return self.get_content(self.name+'.criticality')
+        return self.get_content(self.name + '.criticality')
 
     @property
     def content(self) -> Any | None:
@@ -127,8 +127,7 @@ class NGAPMessage(Message):
         if len(parts) == 2 and hasattr(self, str(parts[1])) and str(parts[1]) != 'content':
             return getattr(self, parts[1])
 
-        raise ContentNotFoundError(f"No content at the path \
-                                    '{qname}' exists in the message")
+        raise ContentNotFoundError(f"No content at the path '{qname}' exists in the message")
 
     def set_content(self, qname: str, value: Any):
         # needed because `get_at` doesn't work with strings represening numbers
@@ -151,8 +150,7 @@ class NGAPMessage(Message):
             # then try with some other attributes from the parent class
             setattr(self, parts[1], value)
         else:
-            raise ContentNotFoundError(f"No content at the path \
-                                       '{qname}' exists in the message")
+            raise ContentNotFoundError(f"No content at the path '{qname}' exists in the message")
 
     def mutators(self) -> list[tuple[Type[Mutator], str]]:
         """Get all the mutators associated with this fuzzable entity.

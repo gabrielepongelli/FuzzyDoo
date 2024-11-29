@@ -1,5 +1,5 @@
 import operator
-from typing import Any
+from typing import Any, override
 from random import Random
 from functools import reduce
 
@@ -18,11 +18,11 @@ RANGES = {
 }
 
 # NOTE: This is not the exact amount, but an approximation
-UTC_TOTAL = reduce(operator.mul, [v[1]-v[0]
+UTC_TOTAL = reduce(operator.mul, [v[1] - v[0]
                    for k, v in RANGES.items() if k != 'fraction'])
 
 # NOTE: This is not the exact amount, but an approximation
-GENERIC_TOTAL = reduce(operator.mul, [v[1]-v[0] for k, v in RANGES.items()])
+GENERIC_TOTAL = reduce(operator.mul, [v[1] - v[0] for k, v in RANGES.items()])
 
 
 @mutates(TimeUTCType, TimeGenType)
@@ -149,9 +149,11 @@ class TimeMutator(Mutator):
                             field_name=data.name,
                             mutated_value=value)
 
+    @override
     def next(self):
         self._mutate(None, True)
 
+    @override
     def mutate(self, data, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 

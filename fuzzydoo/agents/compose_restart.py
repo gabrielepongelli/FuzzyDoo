@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 import subprocess
 from typing import override
 
@@ -20,10 +21,10 @@ class ComposeRestartAgent(GrpcClientAgent):
 
         Args:
             kwargs: Additional keyword arguments. It must contain the following keys:
-                'compose_yaml_path': The path to the `docker-compose.yaml` file.
-                'restart_anyway' (optional): Whether the containers in the compose setting should 
-                    be restarted in `on_test_start` even if they are already running. Defaults to 
-                    `False`.
+                - `'compose_yaml_path'`: The path to the `docker-compose.yaml` file.
+                - `'restart_anyway`' (optional): Whether the containers in the compose setting 
+                    should be restarted in `on_test_start` even if they are already running. 
+                    Defaults to `False`.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -89,13 +90,12 @@ class ComposeRestartServerAgent(GrpcServerAgent):
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)
 
-        self._compose_yaml_path: str | None = kwargs.get(
-            'compose_yaml_path', None)
+        self._compose_yaml_path: Path | None = kwargs.get('compose_yaml_path', None)
         self._restart_anyway: bool = kwargs.get('restart_anyway', False)
 
     def set_options(self, **kwargs):
         if 'compose_yaml_path' in kwargs:
-            self._compose_yaml_path = kwargs['compose_yaml_path']
+            self._compose_yaml_path = Path(kwargs['compose_yaml_path'])
             logging.info('Set %s = %s', 'compose_yaml_path',
                          self._compose_yaml_path)
 
@@ -107,8 +107,9 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         """Check whether the docker compose setup is already running."""
 
         if self._compose_yaml_path is None:
-            logging.error("No docker-compose.yaml path specified")
-            raise AgentError("No docker-compose.yaml path specified")
+            msg = "No docker-compose.yaml path specified"
+            logging.error(msg)
+            raise AgentError(msg)
 
         try:
             result = subprocess.run(

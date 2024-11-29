@@ -104,8 +104,6 @@ class CustomLogFormatter(logging.Formatter):
         # pylint: disable=protected-access
         self._style._fmt = custom_format
 
-        record.name = record.name.capitalize()
-
         return super().format(record)
 
 

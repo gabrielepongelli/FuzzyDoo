@@ -49,8 +49,7 @@ class Message(Fuzzable):
         try:
             return ClassRegister["Message"].get('Message', protocol, name)()
         except ValueError as e:
-            raise UnknownMessageError(
-                f"Unknown message '{name}' in protocol '{protocol}'") from e
+            raise UnknownMessageError(f"Unknown message '{name}' in protocol '{protocol}'") from e
 
     def __init__(self, protocol: str, name: str = "", content: Fuzzable | None = None, delay: int = 0, n_replay: int = 1):
         """Initialize a `Message` object.

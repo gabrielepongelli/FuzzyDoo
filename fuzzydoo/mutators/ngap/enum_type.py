@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, override
 from random import Random
 
 from ...mutator import Mutator, Mutation, MutatorCompleted, mutates
@@ -58,9 +58,11 @@ class EnumMutator(Mutator):
                             field_name=data.name,
                             mutated_value=value)
 
+    @override
     def next(self):
         self._mutate(None, True)
 
+    @override
     def mutate(self, data: EnumType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, override
 from random import Random
 
 from pycrate_asn1rt.setobj import ASN1Set, ASN1Range
@@ -93,8 +93,7 @@ class IntRandomMutator(Mutator):
 
                     if range_limits[1] - range_limits[0] < 256:
                         # there are only a few values, so enumerate them all
-                        possible_values = list(
-                            range(range_limits[0], range_limits[1]))
+                        possible_values = list(range(range_limits[0], range_limits[1]))
                         range_limits = None
                     else:
                         extracted_values = set()
@@ -107,12 +106,10 @@ class IntRandomMutator(Mutator):
                             possible_values += r._rr
                             for _r in r._rv:
                                 curr_range = self._range_limits(_r)
-                                possible_values += list(
-                                    range(curr_range[0], curr_range[1]))
+                                possible_values += list(range(curr_range[0], curr_range[1]))
                         else:
                             curr_range = self._range_limits(_r)
-                            possible_values += list(
-                                range(curr_range[0], curr_range[1]))
+                            possible_values += list(range(curr_range[0], curr_range[1]))
 
             else:
                 range_limits = (0, 2**256)
@@ -145,9 +142,11 @@ class IntRandomMutator(Mutator):
                             field_name=data.name,
                             mutated_value=value)
 
+    @override
     def next(self):
         self._mutate(None, True)
 
+    @override
     def mutate(self, data: IntType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 
@@ -250,9 +249,11 @@ class IntEdgeMutator(Mutator):
                             field_name=data.name,
                             mutated_value=value)
 
+    @override
     def next(self):
         self._mutate(None, True)
 
+    @override
     def mutate(self, data: IntType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, override
 from random import Random
 
 from ..mutator import Mutator, Mutation, MutatorCompleted, mutates
@@ -65,9 +65,11 @@ class DelayedMessageMutator(Mutator):
                             field_name=self._FIELD_NAME,
                             mutated_value=value)
 
+    @override
     def next(self):
         self._mutate(True, None)
 
+    @override
     def mutate(self, _, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(False, state)
 
@@ -126,9 +128,11 @@ class ReplayedMessageMutator(Mutator):
                             field_name=self._FIELD_NAME,
                             mutated_value=value)
 
+    @override
     def next(self):
         self._mutate(True, None)
 
+    @override
     def mutate(self, _, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(False, state)
 

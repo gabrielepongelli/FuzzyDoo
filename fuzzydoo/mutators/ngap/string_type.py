@@ -127,9 +127,11 @@ class BitStrMutator(Mutator):
                             field_name=data.name,
                             mutated_value=(value, bit_len))
 
+    @override
     def next(self):
         self._mutate(None, True)
 
+    @override
     def mutate(self, data: BitStrType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 
@@ -229,17 +231,19 @@ class OctStrMutator(Mutator):
                     raise MutatorCompleted()
             elif extracted_values is not None:
                 self._extracted_values.add(value)
-                if len(self._extracted_values) == 2**(size*8):
+                if len(self._extracted_values) == 2**(size * 8):
                     raise MutatorCompleted()
         else:
             return Mutation(mutator=type(self),
                             mutator_state=self._export_state(),
                             field_name=data.name,
-                            mutated_value=(value, size))
+                            mutated_value=value)
 
+    @override
     def next(self):
         self._mutate(None, True)
 
+    @override
     def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 
@@ -315,7 +319,7 @@ class GenericStrMutator(Mutator):
             res += chr(code_point)
         return res
 
-    def _mutate(self, data: BaseStringType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: OctStrType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -370,9 +374,11 @@ class GenericStrMutator(Mutator):
                             field_name=data.name,
                             mutated_value=value)
 
+    @override
     def next(self):
         self._mutate(None, True)
 
+    @override
     def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 

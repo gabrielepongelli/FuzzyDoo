@@ -88,8 +88,7 @@ class ASN1Type(Fuzzable):
         if len(parts) == 1:
             return self.value
 
-        raise ContentNotFoundError(f"No content at the path \
-                                    '{qname}' exists in this type")
+        raise ContentNotFoundError(f"No content at the path '{qname}' exists in this type")
 
     @override
     def set_content(self, qname: str, value: Any):
@@ -102,8 +101,7 @@ class ASN1Type(Fuzzable):
         if len(parts) == 1:
             self.value = value
         else:
-            raise ContentNotFoundError(f"No content at the path \
-                                    '{qname}' exists in this type")
+            raise ContentNotFoundError(f"No content at the path '{qname}' exists in this type")
 
 
 _MAPPING: dict[Type[ASN1Obj], Type[ASN1Type]] = {}

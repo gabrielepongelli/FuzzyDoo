@@ -147,7 +147,7 @@ class Engine:
         self.end_time: float | None = None
         """Time since epoch taken at the end of a run."""
 
-        self._logger: logging.Logger = logging.getLogger('engine')
+        self._logger: logging.Logger = logging.getLogger('Engine')
         """Logger instance to use."""
 
         try:
@@ -356,7 +356,7 @@ class Engine:
             self._logger.info("Epoch started")
 
         self._epoch_seed = seed
-        self._logger.info('Seed: %s', self._epoch_seed)
+        self._logger.info('Seed: %s', hex(self._epoch_seed))
 
         # first we generate the mutations only
         success = self._fuzz_single_epoch(path, generate_only=True)
@@ -389,7 +389,6 @@ class Engine:
             self._logger.info(
                 "Generating mutations for epoch #%s", self._current_epoch)
 
-        self._logger.debug("Current seed: %s", self._epoch_seed)
         self._epoch_random = Random(hashlib.sha512(
             self._epoch_seed.to_bytes((self._epoch_seed.bit_length() + 7) // 8 or 1)).digest())
 
@@ -436,7 +435,7 @@ class Engine:
                 2. The content of the file
         """
 
-        test_case_path = self._run_path / self._total_cases_fuzzed
+        test_case_path = self._run_path / str(self._total_cases_fuzzed)
         try:
             os.mkdir(test_case_path)
         except OSError as e:
@@ -517,7 +516,7 @@ class Engine:
 
         if part_of_epoch:
             self._logger.info("Test case #%s stopped",
-                              self._epoch_cases_fuzzed+1)
+                              self._epoch_cases_fuzzed + 1)
         else:
             self._logger.info("Test case stopped")
 
@@ -563,11 +562,11 @@ class Engine:
 
         if self._epoch_cases_fuzzed is not None:
             self._logger.info("Test case #%s started",
-                              self._epoch_cases_fuzzed+1)
+                              self._epoch_cases_fuzzed + 1)
         else:
             self._logger.info("Test case started")
         self._logger.info(
-            "Attempt #%s", self.max_attempts_of_test_redo-attempt_left+1)
+            "Attempt #%s", self.max_attempts_of_test_redo - attempt_left + 1)
 
         fault_detected = False
         mutations_generated = False
@@ -591,7 +590,7 @@ class Engine:
                     msg = "Error while receiving message: " + str(e)
                     raise TestCaseExecutionError(msg) from e
 
-                to_be_fuzzed = path.pos+1 == len(path.path)
+                to_be_fuzzed = path.pos + 1 == len(path.path)
                 self._logger.debug("Data received %s", data)
                 self._logger.debug("To be fuzzed: %s", to_be_fuzzed)
 
@@ -673,7 +672,7 @@ class Engine:
                     self._logger.info('An agent asked to redo the test case')
                     self._test_case_teardown()
                     self._logger.info('Redoing test case')
-                    return self._fuzz_single_test_case(path, mutation, generate_only, attempt_left-1)
+                    return self._fuzz_single_test_case(path, mutation, generate_only, attempt_left - 1)
 
                 if mutations_generated:
                     continue
@@ -724,7 +723,8 @@ class Engine:
         # generate the mutations
         mutations: list[tuple[Mutation, str]] = []
         while True:
-            mutator, fuzzable_path = self._epoch_random.choice(mutators)
+            idx = self._epoch_random.randrange(len(mutators))
+            mutator, fuzzable_path = mutators[idx]
             mutation = mutator.mutate(data.get_content(fuzzable_path))
             if mutation not in mutations:
                 mutations.append((mutation, fuzzable_path))
@@ -733,7 +733,7 @@ class Engine:
             try:
                 mutator.next()
             except MutatorCompleted:
-                mutators.remove((mutator, fuzzable_path))
+                mutators = mutators[:idx] + mutators[idx + 1:]
 
             if len(mutators) == 0 or len(mutations) >= self.max_test_cases_per_epoch:
                 break
