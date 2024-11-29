@@ -1,6 +1,8 @@
 from typing import Any, override
 from random import Random
 
+from pycrate_asn1rt.setobj import ASN1Range
+
 from ...mutator import Mutator, Mutation, MutatorCompleted, mutates
 from ...proto.ngap.types import *
 
@@ -78,7 +80,11 @@ class BitStrMutator(Mutator):
             if data and data.constraints and 'sz' in data.constraints:
                 # try to read the range limits from the data
                 bit_len = data.constraints['sz'].root[0]
-                range_limits = (0, 2**bit_len)
+                if isinstance(bit_len, ASN1Range):
+                    range_limits = (2**bit_len.lb, (2**(bit_len.ub + 1)) - 1)
+                    bit_len = bit_len.ub
+                else:
+                    range_limits = (0, 2**bit_len)
 
                 if range_limits[1] - range_limits[0] < 256:
                     # there are only a few values, so enumerate them all
@@ -192,6 +198,9 @@ class OctStrMutator(Mutator):
             if data and data.constraints and 'sz' in data.constraints:
                 # try to read the range limits from the data
                 size = data.constraints['sz'].root[0]
+                if isinstance(size, ASN1Range):
+                    size = size.ub + 1
+
                 if size == 1:
                     # there are only a few values, so enumerate them all
                     possible_values = [i.to_bytes() for i in range(0, 256)]
@@ -331,6 +340,8 @@ class GenericStrMutator(Mutator):
             if data and data.constraints and 'sz' in data.constraints:
                 # try to read the range limits from the data
                 size = data.constraints['sz'].root[0]
+                if isinstance(size, ASN1Range):
+                    size = (size.lb, size.ub + 1)
                 extracted_values = set()
 
             self._codec = codec
@@ -338,7 +349,13 @@ class GenericStrMutator(Mutator):
             self._extracted_values = extracted_values
 
         while True:
-            length = size if size else rand.randint(1, 256)
+            if size is None:
+                length = rand.randint(1, 256)
+            elif isinstance(size, tuple):
+                length = rand.randint(size[0], size[1])
+            else:
+                length = size
+
             value = self._generate_random_string(rand, length, codec)
             if value not in extracted_values:
                 break
@@ -369,8 +386,9 @@ class AlphabetStringMutator(Mutator):
 
         # initially we assume a size of 256 bytes, later when we get a reference of the particular
         # instance we are working on, we will modify this
-        self._size: int | None = None
+        self._size: int | tuple[int, int] | None = None
         self._extracted_values: set[str] = set()
+        self._alphabet: str | None = None
 
     def _export_state(self) -> dict:
         """Export the current state of the `AlphabetStringMutator`.
@@ -379,6 +397,7 @@ class AlphabetStringMutator(Mutator):
             dict: A dictionary containing the following keys:
                 'rand_state': The state of the random number generator.
                 'extracted_values': The set of already extracted values.
+                'alphabet': The alphabet used for the string generation.
                 'size' (optional): The size of the string in characters.
         """
 
@@ -405,33 +424,50 @@ class AlphabetStringMutator(Mutator):
         rand.setstate(self._rand.getstate())
         size = self._size
         extracted_values = self._extracted_values
+        alphabet = self._alphabet
         set_state = size is None
 
         if state is not None:
             rand.setstate(state['rand_state'])
             extracted_values = state['extracted_values']
+            alphabet = state['alphabet']
             size = state.get('size', None)
         elif set_state:
             if data and data.constraints and 'sz' in data.constraints:
                 # try to read the range limits from the data
                 size = data.constraints['sz'].root[0]
+                if isinstance(size, ASN1Range):
+                    size = (size.lb, size.ub + 1)
 
             self._size = size
             self._extracted_values = extracted_values
+            self._alphabet = alphabet = data.alphabet
 
         while True:
-            length = size if size else rand.randint(1, 256)
+            if size is None:
+                length = rand.randint(1, 256)
+            elif isinstance(size, tuple):
+                length = rand.randint(size[0], size[1])
+            else:
+                length = size
+
             value = ''
             for _ in range(length):
-                value += rand.choice(data.alphabet)
+                value += rand.choice(alphabet)
 
             if value not in extracted_values:
                 break
 
         if update_state:
             self._extracted_values.add(value)
-            length = size if size else 256
-            if len(self._extracted_values) == len(data.alphabet)*length:
+            if size is None:
+                length = 256
+            elif isinstance(size, tuple):
+                length = size[1]
+            else:
+                length = size
+
+            if len(self._extracted_values) == len(alphabet) * length:
                 raise MutatorCompleted()
         else:
             return Mutation(mutator=type(self),
