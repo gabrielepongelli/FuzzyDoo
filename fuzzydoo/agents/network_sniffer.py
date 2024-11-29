@@ -71,8 +71,7 @@ class NetworkSnifferAgent(GrpcClientAgent):
 
         Args:
             kwargs: Additional keyword arguments. It must contain the following keys:
-                - `'iface'` (optional): The name of the interface or a list of interface names to 
-                    capture. Defaults to `"any"`.
+                - `'iface'`: The name of the interface or a list of interface names to capture.
                 - `'filter'` (optional): String specifying a filter to apply to the data being 
                     logged. See ![here](https://biot.com/capstats/bpf.html). Defaults to `None`.
 
@@ -132,7 +131,7 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)
 
-        self._iface: str | list[str] = kwargs.get('iface', 'any')
+        self._iface: str | list[str] | None = kwargs.get('iface', None)
         self._filter: str | None = kwargs.get('filter', None)
         self._sniffer: SnifferThread | None = None
 
@@ -149,6 +148,11 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
 
     @override
     def on_test_start(self, ctx: ExecutionContext):
+        if self._iface is None:
+            err_msg = "Interface not specified"
+            logging.error(err_msg)
+            raise AgentError(err_msg)
+
         try:
             socket.if_nametoindex(self._iface)
         except OSError as e:
