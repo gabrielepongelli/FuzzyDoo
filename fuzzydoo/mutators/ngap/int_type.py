@@ -233,9 +233,10 @@ class IntEdgeMutator(Mutator):
                         possible_values += self._generate_from_range(_r)
                 else:
                     possible_values += self._generate_from_range(r)
+            self._possible_values = possible_values
 
         if possible_values is None:
-            possible_values = self._generate_values_from_limits(0, 2**256)
+            self._possible_values = possible_values = self._generate_values_from_limits(0, 2**256)
 
         value = rand.choice(possible_values)
 
