@@ -48,7 +48,7 @@ class TimeMutator(Mutator):
         return {
             'rand_state': self._rand.getstate(),
             'utc': self._utc,
-            'extracted_values': self._extracted_values
+            'extracted_values': set(self._extracted_values)
         }
 
     def _generate_random_time(self, rand: Random, utc: bool) -> tuple:

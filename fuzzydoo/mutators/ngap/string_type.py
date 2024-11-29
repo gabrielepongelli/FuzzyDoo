@@ -43,9 +43,12 @@ class BitStrMutator(Mutator):
 
         if self._range is not None:
             state['range'] = self._range
-            state['extracted_values'] = self._extracted_values
+            if self._extracted_values is not None:
+                state['extracted_values'] = set(self._extracted_values)
+            else:
+                state['extracted_values'] = None
         elif self._possible_values is not None:
-            state['possible_values'] = self._possible_values
+            state['possible_values'] = list(self._possible_values)
 
         return state
 
@@ -158,10 +161,10 @@ class OctStrMutator(Mutator):
             state['size'] = self._size
 
         if self._extracted_values is not None:
-            state['extracted_values'] = self._extracted_values
+            state['extracted_values'] = set(self._extracted_values)
 
         if self._possible_values is not None:
-            state['possible_values'] = self._possible_values
+            state['possible_values'] = list(self._possible_values)
 
         return state
 
@@ -275,7 +278,7 @@ class GenericStrMutator(Mutator):
 
         state = {
             'rand_state': self._rand.getstate(),
-            'extracted_values': self._extracted_values,
+            'extracted_values': set(self._extracted_values),
             'codec': self._codec
         }
 
@@ -381,7 +384,8 @@ class AlphabetStringMutator(Mutator):
 
         state = {
             'rand_state': self._rand.getstate(),
-            'extracted_values': self._extracted_values
+            'extracted_values': set(self._extracted_values),
+            'alphabet': self._alphabet
         }
 
         if self._size is not None:

@@ -40,9 +40,12 @@ class IntRandomMutator(Mutator):
 
         if self._range is not None:
             state['range'] = self._range
-            state['extracted_values'] = self._extracted_values
+            if self._extracted_values is not None:
+                state['extracted_values'] = set(self._extracted_values)
+            else:
+                state['extracted_values'] = None
         elif self._possible_values is not None:
-            state['possible_values'] = self._possible_values
+            state['possible_values'] = list(self._possible_values)
 
         return state
 
@@ -175,7 +178,7 @@ class IntEdgeMutator(Mutator):
 
         return {
             'rand_state': self._rand.getstate(),
-            'possible_values': self._possible_values
+            'possible_values': list(self._possible_values) if self._possible_values is not None else None
         }
 
     def _generate_values_from_limits(self, lower_bound: int, upper_bound: int) -> list[int]:

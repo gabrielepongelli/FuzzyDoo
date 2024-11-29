@@ -24,7 +24,7 @@ class EnumMutator(Mutator):
 
         return {
             'rand_state': self._rand.getstate(),
-            'possible_values': self._possible_values
+            'possible_values': list(self._possible_values) if self._possible_values is not None else None
         }
 
     def _mutate(self, data: EnumType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
