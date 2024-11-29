@@ -150,10 +150,10 @@ class IntRandomMutator(Mutator):
                             mutated_value=value)
 
     def next(self):
-        self._mutate(True, None)
+        self._mutate(None, True)
 
     def mutate(self, data: IntType, state: dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(False, data, state)
+        return self._mutate(data, False, state)
 
 
 @mutates(IntType)
@@ -259,10 +259,10 @@ class IntEdgeMutator(Mutator):
                             mutated_value=value)
 
     def next(self):
-        self._mutate(True, None)
+        self._mutate(None, True)
 
     def mutate(self, data: IntType, state: dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(False, data, state)
+        return self._mutate(data, False, state)
 
 
 __all__ = ['IntRandomMutator', 'IntEdgeMutator']

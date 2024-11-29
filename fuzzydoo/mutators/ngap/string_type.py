@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, override
 from random import Random
 
 from ...mutator import Mutator, Mutation, MutatorCompleted, mutates
@@ -122,10 +122,10 @@ class BitStrMutator(Mutator):
                             mutated_value=(value, bit_len))
 
     def next(self):
-        self._mutate(True, None)
+        self._mutate(None, True)
 
     def mutate(self, data: BitStrType, state: dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(False, data, state)
+        return self._mutate(data, False, state)
 
 
 @mutates(OctStrType)
@@ -229,10 +229,10 @@ class OctStrMutator(Mutator):
                             mutated_value=(value, size))
 
     def next(self):
-        self._mutate(True, None)
+        self._mutate(None, True)
 
     def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(False, data, state)
+        return self._mutate(data, False, state)
 
 
 CHAR_RANGES = {
@@ -354,10 +354,10 @@ class GenericStrMutator(Mutator):
                             mutated_value=value)
 
     def next(self):
-        self._mutate(True, None)
+        self._mutate(None, True)
 
     def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(False, data, state)
+        return self._mutate(data, False, state)
 
 
 @mutates(StrNumType, StrPrintType, StrIa5Type, StrVisType, StrIso646Type)
@@ -438,6 +438,14 @@ class AlphabetStringMutator(Mutator):
                             mutator_state=self._export_state(),
                             field_name=data.name,
                             mutated_value=value)
+
+    @override
+    def next(self):
+        self._mutate(None, True)
+
+    @override
+    def mutate(self, data: AlphabeticalStringType, state: dict[str, Any] | None = None) -> Mutation:
+        return self._mutate(data, False, state)
 
 
 __all__ = ['BitStrMutator', 'OctStrMutator',
