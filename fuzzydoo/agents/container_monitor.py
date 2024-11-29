@@ -114,11 +114,11 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
         is_running = result.stdout.strip()
         if is_running == "true":
             logging.info('Container %s running', self._container_name)
-            return True
+            return False  # fault not detected
 
         if is_running == "false":
             logging.info('Container %s not running', self._container_name)
-            return False
+            return True  # fault detected
 
         logging.error("Unexpected output: %s", is_running)
         raise AgentError("Unexpected output: " + is_running)
