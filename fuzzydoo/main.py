@@ -175,8 +175,8 @@ def parse_agent(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]
         args = {}
 
     if 'options' in conf:
-        check_attr(conf, 'configs', dict, err)
-        options = conf['configs']
+        check_attr(conf, 'options', dict, err)
+        options = conf['options']
     else:
         options = {}
 
