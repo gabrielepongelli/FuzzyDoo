@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fuzzydoo"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Mutation-Based Structure-Aware Fuzzer for 5G Core Networks"
 authors = ["Gabriele Pongelli <pongelligabriele@gmail.com>"]
 readme = "README.md"
