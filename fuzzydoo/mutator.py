@@ -230,7 +230,7 @@ class Mutator(ABC):
         self._name: str = self.__class__.__name__
         self._seed: int = seed
         self._rand: Random = Random(
-            hashlib.sha512(self._seed.to_bytes()).digest())
+            hashlib.sha512(self._seed.to_bytes((self._seed.bit_length() + 7) // 8 or 1)).digest())
 
     @property
     def name(self) -> str:

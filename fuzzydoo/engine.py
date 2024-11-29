@@ -292,7 +292,8 @@ class Engine:
 
         res = True
         epoch_seed_generator = Random(
-            hashlib.sha512(self.main_seed.to_bytes()).digest())
+            hashlib.sha512(
+                self.main_seed.to_bytes((self.main_seed.bit_length() + 7) // 8 or 1)).digest())
 
         if len(paths) > 0:
             paths = [self.protocol.build_path(path) for path in paths]
@@ -390,7 +391,9 @@ class Engine:
 
         self._logger.debug("Current seed: %s", self._epoch_seed)
         self._epoch_random = Random(hashlib.sha512(
-            self._epoch_seed.to_bytes()).digest())
+            self._epoch_seed.to_bytes((self._epoch_seed.bit_length() + 7) // 8 or 1)).digest())
+
+        self._epoch_cases_fuzzed = 0
 
         # if we have only to generate mutations, run a single test case with `generate_only=True`
         if generate_only:
