@@ -50,7 +50,7 @@ class ASN1Type(Fuzzable):
         # raw bytes, the changes won't be reflected
         if self._parent is not None:
             qname = self._parent.name + "." + ".".join(self._path)
-            self._parent.set_content(qname, self)
+            self._parent.set_content(qname, new_value)
 
     @override
     @property
