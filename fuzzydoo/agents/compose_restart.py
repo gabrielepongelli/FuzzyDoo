@@ -1,6 +1,8 @@
 import logging
-from pathlib import Path
 import subprocess
+import os
+import time
+from pathlib import Path
 from typing import override
 
 from ..agent import Agent, AgentError, ExecutionContext
@@ -139,6 +141,22 @@ class ComposeRestartServerAgent(GrpcServerAgent):
             err_msg = str(e.stderr).strip()
             logging.error(err_msg)
             raise AgentError(err_msg) from e
+
+        # to fix a possible race condition
+        # as per: https://forums.docker.com/t/error-while-removing-network-network-has-active-endpoints/109028/11
+        # we need to wait that all the resources of the compose file are released
+        compose_prj_name = os.path.basename(os.path.dirname(self._compose_yaml_path))
+        for resource in ['container', 'network']:
+            while True:
+                res = subprocess.run(
+                    ["docker", resource, "ls", "--filter",
+                        f"label=com.docker.compose.project={compose_prj_name}", "-q"],
+                    stdout=subprocess.PIPE, text=True, check=True
+                )
+                if res.stdout == "":
+                    break
+
+                time.sleep(0.1)
 
         try:
             subprocess.run(
