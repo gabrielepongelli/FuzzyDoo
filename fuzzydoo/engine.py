@@ -33,10 +33,6 @@ class TestCaseExecutionError(FuzzingEngineError):
     """Exception raised when an error occurs during test case execution."""
 
 
-class TimeoutExecutionError(TestCaseExecutionError):
-    """Exception raised when a timeout limit is reached during the execution."""
-
-
 class Engine:
     """The `Engine` class is the main component of the FuzzyDoo fuzzing framework. It orchestrates 
     the entire fuzzing process, including protocol fuzzing, message mutation, encoding, decoding,
@@ -578,88 +574,88 @@ class Engine:
                 while not pub.data_available():
                     delta = time.time() - timestamp_last_message_sent
                     if delta >= self.wait_time_before_test_end:
-                        msg = ("Timeout reached (threshold: "
-                               f"{self.wait_time_before_test_end: .4f}s)")
-                        raise TimeoutExecutionError(msg)
+                        self._logger.warning("Timeout reached (threshold: %.4fs)",
+                                             self.wait_time_before_test_end)
+                        break
+                else:
+                    self._logger.debug("Data available from %s", msg.src)
 
-                self._logger.debug("Data available from %s", msg.src)
-
-                try:
-                    data = pub.receive()
-                except PublisherOperationError as e:
-                    msg = "Error while receiving message: " + str(e)
-                    raise TestCaseExecutionError(msg) from e
-
-                to_be_fuzzed = path.pos + 1 == len(path.path)
-                self._logger.debug("Data received %s", data)
-                self._logger.debug("To be fuzzed: %s", to_be_fuzzed)
-
-                # try to apply all the decoding steps, this even if the message is from the main
-                # actor becuase maybe it contains some info needed to decode future messages
-                decoded_data = data
-                try:
-                    for dec in self.decoders:
-                        self._logger.debug(
-                            "Decoding message with decoder %s", type(dec))
-                        self._logger.debug("Message: %s", decoded_data)
-                        decoded_data = dec.decode(
-                            decoded_data, self.protocol, msg, to_be_fuzzed)
-                except DecodingError as e:
-                    msg = "Error while decoding message: " + str(e)
-                    raise TestCaseExecutionError(msg) from e
-
-                self._logger.debug("Decoded data %s", decoded_data)
-
-                if to_be_fuzzed:
                     try:
-                        self._logger.debug(
-                            "Parsing message with parser %s", type(msg.msg))
-                        msg.msg.parse(decoded_data)
-                    except MessageParsingError as e:
-                        msg = "Error while parsing message: " + str(e)
+                        data = pub.receive()
+                    except PublisherOperationError as e:
+                        msg = "Error while receiving message: " + str(e)
                         raise TestCaseExecutionError(msg) from e
 
-                    # if the flag is set, generate mutations and stop the fuzzing process
-                    if generate_only:
-                        self._logger.debug("Generating mutations")
-                        self._epoch_mutations = self._generate_mutations(
-                            msg.msg)
-                        mutations_generated = True
-                    else:
-                        # apply the mutation
-                        self._logger.debug("Applying mutation")
-                        mutated_data = mutation[0].apply(
-                            msg.msg.get_content(mutation[1]))
-                        msg.msg.set_content(mutation[1], mutated_data)
-                        data = msg.msg.raw()
-                        self._logger.debug("Mutated data %s", data)
+                    to_be_fuzzed = path.pos + 1 == len(path.path)
+                    self._logger.debug("Data received %s", data)
+                    self._logger.debug("To be fuzzed: %s", to_be_fuzzed)
 
+                    # try to apply all the decoding steps, this even if the message is from the main
+                    # actor becuase maybe it contains some info needed to decode future messages
+                    decoded_data = data
+                    try:
+                        for dec in self.decoders:
+                            self._logger.debug(
+                                "Decoding message with decoder %s", type(dec))
+                            self._logger.debug("Message: %s", decoded_data)
+                            decoded_data = dec.decode(
+                                decoded_data, self.protocol, msg, to_be_fuzzed)
+                    except DecodingError as e:
+                        msg = "Error while decoding message: " + str(e)
+                        raise TestCaseExecutionError(msg) from e
+
+                    self._logger.debug("Decoded data %s", decoded_data)
+
+                    if to_be_fuzzed:
                         try:
-                            for enc in self.encoders:
-                                self._logger.debug(
-                                    "Encoding message with encoder %s", type(enc))
-                                self._logger.debug("Message: %s", data)
-                                data = enc.encode(data, self.protocol, msg)
-                        except EncodingError as e:
-                            msg = "Error while encoding message: " + str(e)
+                            self._logger.debug(
+                                "Parsing message with parser %s", type(msg.msg))
+                            msg.msg.parse(decoded_data)
+                        except MessageParsingError as e:
+                            msg = "Error while parsing message: " + str(e)
                             raise TestCaseExecutionError(msg) from e
 
-                        self._logger.debug("Encoded data %s", data)
+                        # if the flag is set, generate mutations and stop the fuzzing process
+                        if generate_only:
+                            self._logger.debug("Generating mutations")
+                            self._epoch_mutations = self._generate_mutations(
+                                msg.msg)
+                            mutations_generated = True
+                        else:
+                            # apply the mutation
+                            self._logger.debug("Applying mutation")
+                            mutated_data = mutation[0].apply(
+                                msg.msg.get_content(mutation[1]))
+                            msg.msg.set_content(mutation[1], mutated_data)
+                            data = msg.msg.raw()
+                            self._logger.debug("Mutated data %s", data)
 
-                if not mutations_generated:
-                    # send the message data to the destination publisher
-                    try:
-                        self._logger.debug(
-                            "Sending message to publisher %s", msg.dst)
-                        self.actors[msg.dst].send(data)
-                    except PublisherOperationError as e:
-                        msg = "Error while sending message: " + str(e)
-                        raise TestCaseExecutionError(msg) from e
+                            try:
+                                for enc in self.encoders:
+                                    self._logger.debug(
+                                        "Encoding message with encoder %s", type(enc))
+                                    self._logger.debug("Message: %s", data)
+                                    data = enc.encode(data, self.protocol, msg)
+                            except EncodingError as e:
+                                msg = "Error while encoding message: " + str(e)
+                                raise TestCaseExecutionError(msg) from e
 
-                    timestamp_last_message_sent = time.time()
+                            self._logger.debug("Encoded data %s", data)
 
-                if not to_be_fuzzed:
-                    continue
+                    if not mutations_generated:
+                        # send the message data to the destination publisher
+                        try:
+                            self._logger.debug(
+                                "Sending message to publisher %s", msg.dst)
+                            self.actors[msg.dst].send(data)
+                        except PublisherOperationError as e:
+                            msg = "Error while sending message: " + str(e)
+                            raise TestCaseExecutionError(msg) from e
+
+                        timestamp_last_message_sent = time.time()
+
+                    if not to_be_fuzzed:
+                        continue
 
                 try:
                     is_to_redo = self._agent.redo_test()
