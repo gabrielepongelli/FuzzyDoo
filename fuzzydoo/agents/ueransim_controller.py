@@ -496,36 +496,14 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
 
         is_cli_executed = False
         while not self.stop_event.is_set():
-            if not self.ue_handler.is_alive():
-                if self.also_start_ue \
-                        and self.gnb_handler.success_event is not None \
-                        and self.gnb_handler.success_event.is_set():
-                    self.ue_handler.start()
-                    logging.info('Started',
-                                 extra={'tool': self.ue_handler.descriptor.name})
-            else:
-                if self.ue_handler.is_error_occurred:
-                    e = self.ue_handler.exception
-                    self.is_error_recoverable = self.ue_handler.is_error_recoverable
-                    if self.is_error_recoverable:
-                        logging.warning('%s', str(e), extra={
-                                        'tool': self.ue_handler.descriptor.name})
-                    else:
-                        logging.error('%s', str(e),
-                                      extra={'tool': self.ue_handler.descriptor.name})
-                    raise e
-
-                if self.also_exec_cli \
-                        and not is_cli_executed \
-                        and self.ue_handler.success_event is not None \
-                        and self.ue_handler.success_event.is_set():
-                    try:
-                        self._exec_cli_on_path_idx()
-                        is_cli_executed = True
-                    except AgentError as e:
-                        logging.warning('%s', str(e), extra={'tool': 'cli'})
-                        self.is_error_recoverable = True
-                        raise e
+            if self.ue_handler.is_error_occurred:
+                e = self.ue_handler.exception
+                self.is_error_recoverable = self.ue_handler.is_error_recoverable
+                if self.is_error_recoverable:
+                    logging.warning('%s', str(e), extra={'tool': self.ue_handler.descriptor.name})
+                else:
+                    logging.error('%s', str(e), extra={'tool': self.ue_handler.descriptor.name})
+                raise e
 
             if self.gnb_handler.is_error_occurred:
                 e = self.gnb_handler.exception
@@ -537,6 +515,24 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
                     logging.error('%s', str(e),
                                   extra={'tool': self.gnb_handler.descriptor.name})
                 raise e
+
+            if not self.ue_handler.is_alive():
+                if self.also_start_ue \
+                        and self.gnb_handler.success_event is not None \
+                        and self.gnb_handler.success_event.is_set():
+                    self.ue_handler.start()
+                    logging.info('Started', extra={'tool': self.ue_handler.descriptor.name})
+            elif self.also_exec_cli \
+                    and not is_cli_executed \
+                    and self.ue_handler.success_event is not None \
+                    and self.ue_handler.success_event.is_set():
+                try:
+                    self._exec_cli_on_path_idx()
+                    is_cli_executed = True
+                except AgentError as e:
+                    logging.warning('%s', str(e), extra={'tool': 'cli'})
+                    self.is_error_recoverable = True
+                    raise e
 
             time.sleep(0.1)
 
