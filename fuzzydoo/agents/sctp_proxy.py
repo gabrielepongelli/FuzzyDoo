@@ -248,13 +248,13 @@ class ProxyEndpoint(Publisher):
 
         logging.info('Endpoint stopped', extra={'entity': self.name})
 
-        if self._sender.is_error_occurred:
+        if self._sender and self._sender.is_error_occurred:
             msg = str(self._sender.exception)
             logging.error(msg, extra={'entity': self.name})
             self.is_error_recoverable = self._sender.is_error_recoverable
             raise PublisherOperationError(msg)
 
-        if self._receiver.is_error_occurred:
+        if self._receiver and self._receiver.is_error_occurred:
             msg = str(self._receiver.exception)
             logging.error(msg, extra={'entity': self.name})
             self.is_error_recoverable = self._receiver.is_error_recoverable
