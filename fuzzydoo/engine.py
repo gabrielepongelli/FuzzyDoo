@@ -33,7 +33,7 @@ class TestCaseExecutionError(FuzzingEngineError):
     """Exception raised when an error occurs during test case execution."""
 
 
-class TimeoutExecutionError(FuzzingEngineError):
+class TimeoutExecutionError(TestCaseExecutionError):
     """Exception raised when a timeout limit is reached during the execution."""
 
 
