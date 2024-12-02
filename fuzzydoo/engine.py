@@ -688,6 +688,9 @@ class Engine:
 
                     self._save_findings(data)
 
+                if delta >= self.wait_time_before_test_end:
+                    break
+
             self._test_case_teardown()
         except TestCaseExecutionError as e:
             self._logger.error("%s", str(e))
