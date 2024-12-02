@@ -566,6 +566,7 @@ class Engine:
 
         fault_detected = False
         mutations_generated = False
+        delta = 0.0
         try:
             timestamp_last_message_sent = time.time()
             for msg in path:
