@@ -26,7 +26,7 @@ NGAP_GNB_START_UE_START = NGAP_GNB_START + [
     'InitialUEMessageMessage', 'DownlinkNASTransportMessage', 'UplinkNASTransportMessage',
     'DownlinkNASTransportMessage', 'UplinkNASTransportMessage',
     'InitialContextSetupRequestMessage', 'InitialContextSetupResponseMessage',
-    'UplinkNASTransportMessage', 'DownlinkNASTransportMessage',
+    'UplinkNASTransportMessage', 'UplinkNASTransportMessage', 'DownlinkNASTransportMessage',
     'PDUSessionResourceSetupRequestMessage', 'PDUSessionResourceSetupResponseMessage']
 
 NGAP_SUPPORTED_PATHS = [
