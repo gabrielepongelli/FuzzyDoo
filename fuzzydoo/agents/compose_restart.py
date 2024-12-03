@@ -200,6 +200,7 @@ __all__ = ['ComposeRestartAgent']
 def main():
     import argparse
     import sys
+    import os
 
     parser = argparse.ArgumentParser(
         description='Agent that restarts all the docker containers in a docker compose setup.')
@@ -207,6 +208,13 @@ def main():
     parser.add_argument('--port', type=int, help='Port to listen on')
 
     args = parser.parse_args()
+
+    if os.geteuid() != 0:
+        sys.stderr.write(
+            "You need root permissions to run this script. To solve this problem execute this script like this:\n\n")
+        sys.stderr.write("\tsudo $(which compose-restart)\n\n")
+        sys.exit(1)
+
     if not args.ip or not args.port:
         sys.stderr.write("Error: No IP address and port specified\n")
         sys.exit(1)
