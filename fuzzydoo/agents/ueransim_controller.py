@@ -450,11 +450,13 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
                                           "ps-list")
                 pdu_session_id = first_true(
                     res.stdout.decode().split('\n'),
-                    default=None, pred=lambda line: line[0] == ' ')
+                    default=None, pred=lambda line: line.startswith('PDU Session'))
 
                 if pdu_session_id is None:
-                    raise AgentError(
-                        f"Error getting PDU session ID: {res.stderr.decode()}")
+                    raise AgentError(f"Error getting PDU session ID: {res.stderr.decode()}")
+
+                # the line is "PDU Session1:\n" for session with id 1
+                pdu_session_id = pdu_session_id.split('Session')[1].split(':')[0]
 
                 # nr-cli UE-NODE-NAME --exec "ps-release PDU-SESSION-ID"
                 UERANSIMCli.run_cmd(self.cli_path,
