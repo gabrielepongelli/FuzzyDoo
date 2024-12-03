@@ -1,6 +1,6 @@
 import logging
 import subprocess
-import os
+import re
 import time
 from pathlib import Path
 from typing import override
@@ -137,26 +137,42 @@ class ComposeRestartServerAgent(GrpcServerAgent):
                 ["docker", "compose", "-f", self._compose_yaml_path, "down"],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
             )
-        except subprocess.CalledProcessError as e:
-            err_msg = str(e.stderr).strip()
-            logging.error(err_msg)
-            raise AgentError(err_msg) from e
-
-        # to fix a possible race condition
-        # as per: https://forums.docker.com/t/error-while-removing-network-network-has-active-endpoints/109028/11
-        # we need to wait that all the resources of the compose file are released
-        compose_prj_name = os.path.basename(os.path.dirname(self._compose_yaml_path))
-        for resource in ['container', 'network']:
-            while True:
+        except subprocess.CalledProcessError as e1:
+            # we need to restart the docker service before removing the network
+            try:
+                # get the root path of docker
                 res = subprocess.run(
-                    ["docker", resource, "ls", "--filter",
-                        f"label=com.docker.compose.project={compose_prj_name}", "-q"],
-                    stdout=subprocess.PIPE, text=True, check=True
+                    ["docker", "info"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
                 )
-                if res.stdout == "":
-                    break
+                docker_root_dir = re.search(r"Docker Root Dir:\s*(.*)", res.stdout)
+                if not docker_root_dir:
+                    err_msg = str(e1.stderr).strip()
+                    logging.error(err_msg)
+                    raise AgentError(err_msg) from e1
 
-                time.sleep(0.1)
+                # restart the docker service
+                if 'snap' in docker_root_dir.group(1):
+                    subprocess.run(
+                        ["snap", "restart", "docker"],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+                    )
+                else:
+                    subprocess.run(
+                        ["systemctl", "restart", "docker.service"],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+                    )
+
+                time.sleep(1)
+
+                subprocess.run(
+                    ["docker", "compose", "-f", self._compose_yaml_path, "down"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+                )
+            except subprocess.CalledProcessError as e2:
+                err_msg = str(e2.stderr).strip()
+                logging.error(err_msg)
+                raise AgentError(err_msg) from e2
 
         try:
             subprocess.run(
