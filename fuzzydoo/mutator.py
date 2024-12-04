@@ -204,8 +204,7 @@ class Mutation:
         """
 
         mutator = self.mutator()
-        mutated_val = mutator.mutate(
-            data, state=self.mutator_state).mutated_value
+        mutated_val = mutator.mutate(data, state=self.mutator_state).mutated_value
 
         if self.field_name == "":
             qname = data.name

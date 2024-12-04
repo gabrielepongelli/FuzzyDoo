@@ -31,9 +31,8 @@ class ASN1Type(Fuzzable):
 
         self._content: ASN1Obj = content
         self._path: list[str] = [str(p) for p in path]
-        self._parent = parent
+        self._parent: Fuzzable = parent
 
-    @override
     @property
     def value(self):
         """The value represented by this ASN.1 type."""
@@ -52,7 +51,6 @@ class ASN1Type(Fuzzable):
             qname = self._parent.name + "." + ".".join(self._path)
             self._parent.set_content(qname, new_value)
 
-    @override
     @property
     def constraints(self) -> dict:
         """The constraints of this ASN.1 type."""

@@ -36,6 +36,7 @@ class NGAPMessage(Message):
         self._msg_type: str = msg_type
         self._body_type: str = body_type
         self._leaf_paths: None | list[list[str]] = None
+        self._modified_proc_code: int | None = None
 
     @property
     def procedure_code(self) -> IntType:
@@ -73,7 +74,19 @@ class NGAPMessage(Message):
         self._leaf_paths = [path for path, _ in ngap_pdu.get_val_paths()]
 
     def raw(self) -> bytes:
-        return self._content.to_aper()
+        modified_data = self._content.to_aper()
+
+        if self._modified_proc_code is not None:
+            # apply the mutation on the procedureCode manually
+
+            # NOTE: it is applied here, and not in self.set_content because, in case we want to do
+            # multiple mutations, this one would be the last one to be applied
+            modified_data = self._content.to_aper()
+            modified_data = modified_data[0:1] \
+                + cast(int, self._modified_proc_code).to_bytes(1) \
+                + modified_data[2:]
+
+        return modified_data
 
     def _redact_path(self, path: list[str | int]) -> list[str | int]:
         """Remove elements from the specified path so that it can be used outside of this class.
@@ -124,9 +137,6 @@ class NGAPMessage(Message):
                 res = self._content.get_at(p)
                 return map_type(type(res))(content=res, path=redacted, parent=self)
 
-        if len(parts) == 2 and hasattr(self, str(parts[1])) and str(parts[1]) != 'content':
-            return getattr(self, parts[1])
-
         raise ContentNotFoundError(f"No content at the path '{qname}' exists in the message")
 
     def set_content(self, qname: str, value: Any):
@@ -142,13 +152,15 @@ class NGAPMessage(Message):
 
         full_path = self._restore_path(parts[1:])
         if full_path in self._leaf_paths:
-            # first try to search in the message content
             if isinstance(value, ASN1Type):
                 value = value.value
-            self._content.set_val_at(full_path, value)
-        elif len(parts) == 2 and hasattr(self, str(parts[1])) and str(parts[1]) != 'content':
-            # then try with some other attributes from the parent class
-            setattr(self, parts[1], value)
+
+            if len(full_path) == 2 and full_path[1] == 'procedureCode':
+                # modify this value later in a special way, otherwise pycrate will log a warning
+                # and perform no mutation at all (see self.raw())
+                self._modified_proc_code = value
+            else:
+                self._content.set_val_at(full_path, value)
         else:
             raise ContentNotFoundError(f"No content at the path '{qname}' exists in the message")
 
