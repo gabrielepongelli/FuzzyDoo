@@ -35,10 +35,6 @@ class ComposeRestartAgent(GrpcClientAgent):
         super().set_options(**kwargs)
 
     @override
-    def on_test_end(self):
-        return
-
-    @override
     def get_data(self) -> list[tuple[str, bytes]]:
         return []
 
@@ -95,6 +91,8 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         self._compose_yaml_path: Path | None = kwargs.get('compose_yaml_path', None)
         self._restart_anyway: bool = kwargs.get('restart_anyway', False)
 
+        self._fault_detected: bool = False
+
     def set_options(self, **kwargs):
         if 'compose_yaml_path' in kwargs:
             self._compose_yaml_path = Path(kwargs['compose_yaml_path'])
@@ -125,8 +123,31 @@ class ComposeRestartServerAgent(GrpcServerAgent):
 
         return result.stdout.strip() != ""
 
-    def _restart_compose(self):
-        """Restart all the containers in the docker compose setup."""
+    def _start_compose(self):
+        """Start all the containers in the docker compose setup."""
+
+        logging.info("Starting docker compose setup...")
+
+        if self._compose_yaml_path is None:
+            logging.error("No docker-compose.yaml path specified")
+            raise AgentError("No docker-compose.yaml path specified")
+
+        try:
+            subprocess.run(
+                ["docker", "compose", "-f", self._compose_yaml_path, "up", "-d"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+            )
+        except subprocess.CalledProcessError as e:
+            err_msg = str(e.stderr).strip()
+            logging.error(err_msg)
+            raise AgentError(err_msg) from e
+
+        logging.info("Docker compose setup started")
+
+    def _stop_compose(self):
+        """Stop all the containers in the docker compose setup."""
+
+        logging.info("Stopping docker compose setup...")
 
         if self._compose_yaml_path is None:
             logging.error("No docker-compose.yaml path specified")
@@ -174,24 +195,29 @@ class ComposeRestartServerAgent(GrpcServerAgent):
                 logging.error(err_msg)
                 raise AgentError(err_msg) from e2
 
-        try:
-            subprocess.run(
-                ["docker", "compose", "-f", self._compose_yaml_path, "up", "-d"],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
-            )
-        except subprocess.CalledProcessError as e:
-            err_msg = str(e.stderr).strip()
-            logging.error(err_msg)
-            raise AgentError(err_msg) from e
+        logging.info("Docker compose setup stopped")
 
     @override
     def on_test_start(self, ctx: ExecutionContext):
-        if self._restart_anyway or not self._is_running():
-            self._restart_compose()
+        if not self._is_running():
+            self._start_compose()
+        elif self._restart_anyway:
+            self._stop_compose()
+            self._start_compose()
+
+    @override
+    def on_test_end(self):
+        if self._restart_anyway or self._fault_detected:
+            self._fault_detected = False
+            self._stop_compose()
 
     @override
     def on_fault(self):
-        self._restart_compose()
+        self._fault_detected = True
+
+    @override
+    def on_shutdown(self):
+        self._stop_compose()
 
 
 __all__ = ['ComposeRestartAgent']
