@@ -543,7 +543,7 @@ class Engine:
 
         if attempt_left == 0:
             self._logger.warning("Exhausted all attempts")
-            return
+            return False, False
 
         try:
             self._test_case_setup(ExecutionContext(self.protocol.name, path))
