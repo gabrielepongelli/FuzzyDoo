@@ -495,8 +495,11 @@ class Engine:
 
         self._logger.info("Test case setup completed")
 
-    def _test_case_teardown(self):
+    def _test_case_teardown(self, generate_only: bool):
         """Do everything that is necessary to clean up after the execution of a test case.
+
+        Args:
+            generate_only: A flag indicating whether mutations should be only generated and not applied.
 
         Raises:
             TestCaseExecutionError: If any of the agents wants to stop the execution.
@@ -510,11 +513,11 @@ class Engine:
             except PublisherOperationError as e:
                 self._logger.warning("Failed to stop a publisher: %s", e)
 
-        if part_of_epoch:
-            self._logger.info("Test case #%s stopped",
-                              self._epoch_cases_fuzzed + 1)
-        else:
-            self._logger.info("Test case stopped")
+        if not generate_only:
+            if part_of_epoch:
+                self._logger.info("Test case #%s stopped", self._epoch_cases_fuzzed + 1)
+            else:
+                self._logger.info("Test case stopped")
 
         try:
             self._agent.on_test_end()
@@ -551,18 +554,19 @@ class Engine:
             self._logger.error("%s", str(e))
             self._logger.error("Test case setup failed")
             try:
-                self._test_case_teardown()
+                self._test_case_teardown(generate_only)
             except TestCaseExecutionError:
                 pass
             return False, False
 
-        if self._epoch_cases_fuzzed is not None:
-            self._logger.info("Test case #%s started",
-                              self._epoch_cases_fuzzed + 1)
-        else:
-            self._logger.info("Test case started")
-        self._logger.info(
-            "Attempt #%s", self.max_attempts_of_test_redo - attempt_left + 1)
+        if not generate_only:
+            if self._epoch_cases_fuzzed is not None:
+                self._logger.info("Test case #%s started",
+                                  self._epoch_cases_fuzzed + 1)
+            else:
+                self._logger.info("Test case started")
+
+        self._logger.info("Attempt #%s", self.max_attempts_of_test_redo - attempt_left + 1)
 
         fault_detected = False
         mutations_generated = False
@@ -667,7 +671,7 @@ class Engine:
                     if mutations_generated:
                         self._epoch_mutations = []
                     self._logger.info('An agent asked to redo the test case')
-                    self._test_case_teardown()
+                    self._test_case_teardown(generate_only)
                     self._logger.info('Redoing test case')
                     return self._fuzz_single_test_case(path, mutation, generate_only, attempt_left - 1)
 
@@ -692,11 +696,11 @@ class Engine:
                 if delta >= self.wait_time_before_test_end:
                     break
 
-            self._test_case_teardown()
+            self._test_case_teardown(generate_only)
         except TestCaseExecutionError as e:
             self._logger.error("%s", str(e))
             try:
-                self._test_case_teardown()
+                self._test_case_teardown(generate_only)
             except TestCaseExecutionError:
                 pass
             return False, False
