@@ -47,6 +47,11 @@ class SnifferThread(EventStoppableThread, ExceptionRaiserThread):
         except ShutDown:
             pass
 
+    @override
+    def join(self, timeout=None):
+        super().join(timeout)
+        self._socket.close()
+
     def _on_packet(self, packet: scapy.Packet) -> str:
         self.packets.put_nowait(packet)
         return packet.sniffed_on + ": " + packet.summary()
