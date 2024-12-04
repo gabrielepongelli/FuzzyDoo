@@ -220,6 +220,8 @@ class UERANSIMCli:
             args = f'{node} --exec "{cmd}"'
 
         cmd = f"{path} {args}"
+
+        logging.debug("Executing command: '%s'", cmd, extra={'tool': "Cli"})
         try:
             return subprocess.run(shlex.split(cmd), stdout=PIPE,
                                   stderr=PIPE, shell=False, check=True)
