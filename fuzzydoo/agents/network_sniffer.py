@@ -47,11 +47,6 @@ class SnifferThread(EventStoppableThread, ExceptionRaiserThread):
         except ShutDown:
             pass
 
-    @override
-    def join(self, timeout=None):
-        super().join(timeout)
-        self._socket.close()
-
     def _on_packet(self, packet: scapy.Packet) -> str:
         self.packets.put_nowait(packet)
         return packet.sniffed_on + ": " + packet.summary()
@@ -168,6 +163,14 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
         try:
             p: subprocess.Popen = scapy.tcpdump(flt=self._filter, getproc=True)
             p.kill()
+
+            # essential, otherwise they remains open
+            if p.stdin:
+                p.stdin.close()
+            if p.stdout:
+                p.stdout.close()
+            if p.stderr:
+                p.stderr.close()
         except scapy.Scapy_Exception as e:
             err_msg = f"Invalid filter '{self._filter}'"
             logging.error(err_msg)
