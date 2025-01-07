@@ -8,7 +8,8 @@ from typing import Any, NoReturn, cast
 
 import yaml
 
-from fuzzydoo.proto import Protocol, ProtocolError
+from fuzzydoo.protocol import Protocol, ProtocolError
+from fuzzydoo.transformer import Encoder, Decoder, TransformerError
 from fuzzydoo.agent import Agent, AgentError
 from fuzzydoo.publisher import Publisher, PublisherSource, PublisherError
 from fuzzydoo.engine import Engine
@@ -217,10 +218,10 @@ def parse_publisher(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRet
         check_attr({'actor': actor}, 'actor', str, err)
 
     res = []
-    if 'id' in conf:
-        check_attr(conf, 'id', int, err)
-        if conf['id'] in refs:
-            p = refs[conf['id']]
+    if 'ref' in conf:
+        check_attr(conf, 'ref', int, err)
+        if conf['ref'] in refs:
+            p = refs[conf['ref']]
             if isinstance(p, PublisherSource):
                 actors = p.actors
                 for actor in conf['actors']:
@@ -231,10 +232,10 @@ def parse_publisher(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRet
                 for actor in conf['actors']:
                     res.append((actor, p))
             else:
-                err(
-                    f"invalid publisher '{conf['name']}' with reference '{conf['id']}'")
-
+                err(f"invalid publisher '{conf['name']}' with reference '{conf['ref']}'")
             return res
+        else:
+            err(f"invalid reference value: {conf['ref']}")
 
     if 'configs' in conf:
         check_attr(conf, 'configs', dict, err)
@@ -253,6 +254,90 @@ def parse_publisher(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRet
     for actor in conf['actors']:
         res.append((actor, p))
     return res
+
+
+def parse_encoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]) -> Encoder | NoReturn:
+    """Parse an encoder configuration.
+
+    Args:
+        conf: The configuration dictionary for the encoder, which must include a `'name'` key.
+        refs: A dictionary to store references to created encoders, indexed by their IDs.
+        err: A callable that handles error messages, typically by raising an exception.
+
+    Returns:
+        Encoder | NoReturn: The new `Encoder` instance. If an error occurs during parsing 
+            or encoder creation, the function calls the error handler.
+    """
+
+    check_attr(conf, 'name', str, err)
+
+    if 'ref' in conf:
+        check_attr(conf, 'ref', int, err)
+        if conf['ref'] in refs:
+            enc = refs[conf['ref']]
+            if isinstance(enc, Encoder):
+                return enc
+            err(f"invalid encoder '{conf['name']}' with reference '{conf['ref']}'")
+        else:
+            err(f"invalid reference value: {conf['ref']}")
+
+    if 'configs' in conf:
+        check_attr(conf, 'configs', dict, err)
+        args = conf['configs']
+    else:
+        args = {}
+
+    try:
+        enc = Encoder.from_name(conf['name'], **args)
+    except TransformerError as e:
+        err(str(e))
+
+    if 'id' in conf:
+        refs[conf['id']] = enc
+
+    return enc
+
+
+def parse_decoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]) -> Decoder | NoReturn:
+    """Parse a decoder configuration.
+
+    Args:
+        conf: The configuration dictionary for the decoder, which must include a `'name'` key.
+        refs: A dictionary to store references to created decoders, indexed by their IDs.
+        err: A callable that handles error messages, typically by raising an exception.
+
+    Returns:
+        Decoder | NoReturn: The new `Decoder` instance. If an error occurs during parsing 
+            or decoder creation, the function calls the error handler.
+    """
+
+    check_attr(conf, 'name', str, err)
+
+    if 'ref' in conf:
+        check_attr(conf, 'ref', int, err)
+        if conf['ref'] in refs:
+            dec = refs[conf['ref']]
+            if isinstance(dec, Decoder):
+                return dec
+            err(f"invalid decoder '{conf['name']}' with reference '{conf['ref']}'")
+        else:
+            err(f"invalid reference value: {conf['ref']}")
+
+    if 'configs' in conf:
+        check_attr(conf, 'configs', dict, err)
+        args = conf['configs']
+    else:
+        args = {}
+
+    try:
+        dec = Encoder.from_name(conf['name'], **args)
+    except TransformerError as e:
+        err(str(e))
+
+    if 'id' in conf:
+        refs[conf['id']] = dec
+
+    return dec
 
 
 def generate_main_seed(err: Callable[[str], NoReturn]) -> int | NoReturn:
@@ -309,6 +394,34 @@ def set_optional_config(
         dst[dst_name] = default() if callable(default) else default
 
 
+def resolve_references(references: list[list[list, int, list, Callable]]) -> None | NoReturn:
+    """Try to resolve previously unresolved references.
+
+    Args:
+        references: A list of references to resolve. Each reference has the following content:
+            1. The final list in which the dereferenced object should be placed.
+            2. The index in the final list where the dereferenced object should be placed.
+            3. A list of arguments to pass to the parser function when resolving the reference.
+            4. A parser function to use to resolve the reference.
+    """
+
+    if len(references) == 0:
+        return
+
+    for i, ref in enumerate(references):
+        final_list, idx, args, parse = ref[0], ref[1], ref[2], ref[3]
+        solved_ref = parse(*args)
+        if isinstance(solved_ref, list):
+            final_list[idx] = solved_ref[0]
+            for j, r in enumerate(solved_ref[1:]):
+                final_list.insert(idx + j + 1, r)
+            for r in references[i + 1:]:
+                if r[0] is final_list:
+                    r[1] = r[1] + len(solved_ref) - 1
+        else:
+            final_list[idx] = solved_ref
+
+
 def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, Any] | NoReturn:
     """Parse a configuration file.
 
@@ -360,6 +473,7 @@ def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, A
         err(f"invalid actor '{run['actor']}'")
 
     refs: dict[int, Any] = {}
+    to_resolve_later: list[list[list, int, dict, list, Callable]] = []
     agents: list[tuple[Agent, dict]] = []
     if 'agents' in run:
         check_attr(run, 'agents', list, err)
@@ -374,7 +488,42 @@ def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, A
     for i, pub in enumerate(run['publishers']):
         err_prefix = f"publisher {i + 1}: "
         custom_err = lambda msg: err(err_prefix + msg)
-        publishers.extend(parse_publisher(pub, refs, custom_err))
+        args = [pub, refs, custom_err]
+        if 'ref' in pub and pub['ref'] not in refs:
+            to_resolve_later.append([publishers, i, args, parse_publisher])
+            publishers.append(None)
+        else:
+            publishers.extend(parse_publisher(*args))
+
+    encoders: list[Encoder] = []
+    if 'encoders' in run:
+        check_attr(run, 'encoders', list, err)
+        for i, enc in enumerate(run['encoders']):
+            err_prefix = f"encoders {i + 1}: "
+            custom_err = lambda msg: err(err_prefix + msg)
+            args = [enc, refs, custom_err]
+            if 'ref' in enc and enc['ref'] not in refs:
+                to_resolve_later.append([encoders, i, args, parse_encoder])
+                encoders.append(None)
+            else:
+                encoders.append(parse_encoder(*args))
+    res['encoders'] = encoders
+
+    decoders: list[Decoder] = []
+    if 'decoders' in run:
+        check_attr(run, 'decoders', list, err)
+        for i, dec in enumerate(run['decoders']):
+            err_prefix = f"decoders {i + 1}: "
+            custom_err = lambda msg: err(err_prefix + msg)
+            args = [dec, refs, custom_err]
+            if 'ref' in dec and dec['ref'] not in refs:
+                to_resolve_later.append([decoders, i, args, parse_decoder])
+                decoders.append(None)
+            else:
+                decoders.append(parse_decoder(*args))
+    res['decoders'] = decoders
+
+    resolve_references(to_resolve_later)
 
     actors: dict[str, Publisher] = {}
     check_attr(run, 'actors', list, err)
@@ -395,9 +544,6 @@ def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, A
             if actor['to'] == a:
                 actors[actor_from] = p
     res['actors'] = actors
-
-    res['encoders'] = []
-    res['decoders'] = []
 
     set_optional_config(src=run, dst=res, src_name='seed', dst_name='main_seed',
                         src_type=int, default=lambda: generate_main_seed(err), err=err)

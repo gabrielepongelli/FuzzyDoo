@@ -1,7 +1,6 @@
 from typing import override
 
-from ....proto.message import Message, UnknownMessageError
-from ....proto.protocol import EdgeTag, MessageNode, ProtocolEdge, ProtocolNode, ProtocolPath
+from ....protocol import EdgeTag, MessageNode, ProtocolEdge, ProtocolNode, ProtocolPath, Message, UnknownMessageError
 from ..serializer import Serializer, DeserializationError
 from ..generated import agent_pb2
 
@@ -55,15 +54,13 @@ class ProtocolNodeSerializer(Serializer[agent_pb2.ProtocolNode, ProtocolNode]):
             res = ProtocolNode(msg.id)
         else:
             try:
-                fuzzydoo_msg = Message.from_name(
-                    msg.content.protocol_name, msg.content.msg_name)
+                fuzzydoo_msg = Message.from_name(msg.content.protocol_name, msg.content.msg_name)
             except UnknownMessageError as e:
                 raise DeserializationError(
                     f"The message '{msg.content.msg_name}' doesn't exist "
                     f"inside the {msg.content.protocol_name} protocol") from e
 
-            res = MessageNode(msg.id, msg.content.src,
-                              msg.content.dst, fuzzydoo_msg)
+            res = MessageNode(msg.id, msg.content.src, msg.content.dst, fuzzydoo_msg)
         return res
 
 
@@ -140,8 +137,7 @@ class ProtocolPathSerializer(Serializer[agent_pb2.ProtocolPath, ProtocolPath]):
         """
 
         res = agent_pb2.ProtocolPath()
-        res.path.extend([ProtocolEdgeSerializer.serialize(e)
-                        for e in obj.path])
+        res.path.extend([ProtocolEdgeSerializer.serialize(e) for e in obj.path])
         return res
 
     @override

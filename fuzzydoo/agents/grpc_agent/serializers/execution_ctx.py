@@ -18,8 +18,7 @@ class ExecutionContextSerializer:
             agent_pb2.ExecutionContext: The serialized `ExecutionContext` protobuf message.
         """
 
-        res = agent_pb2.ExecutionContext(
-            path=ProtocolPathSerializer.serialize(ctx.path))
+        res = agent_pb2.ExecutionContext(path=ProtocolPathSerializer.serialize(ctx.path))
         res.protocol_name = ctx.protocol_name
         return res
 

@@ -1,229 +1,34 @@
 # pylint: disable=too-many-lines
 # pyright: reportUndefinedVariable=false
 
-from dataclasses import dataclass
-from enum import Enum
-from typing import override
-from collections.abc import Callable, Iterator
-
 from ...utils.register import register
-from ..protocol import MessageNode, Protocol, EdgeTag, ProtocolEdge, ProtocolNode, ProtocolPath
+from ...protocol import Protocol, EdgeTag
+from ..capability_protocol import CapabilityProtocol, CapabilityAction
 from .messages import *
 
 
-class CapabilityAction(Enum):
-    """Enumeration of possible actions to perform given a capability."""
-
-    ADD = 1
-    """Add the capability to the set of unlocked capabilities."""
-
-    REMOVE = 2
-    """Remove the capability from the set of unlocked capabilities."""
-
-    REQUIRE = 3
-    """Check if the capability is part of the set of unlocked capabilities."""
-
-
-@dataclass
-class CapabilityNode(ProtocolNode):
-    """A graph node that represents a capability action.
-
-    Attributes:
-        id: The unique identifier for the node.
-        action: The action contained by this node.
-        capability: The capability contained by this node.
-    """
-
-    action: CapabilityAction
-    capability: str
-
-
 @register(Protocol, 'NGAP', append_name=False)
-class NGAPProtocol(Protocol):
-    """A protocol with methods specialized for the NGAP Protocol.
+class NGAPProtocol(CapabilityProtocol):
+    """Represents the NGAP (Next Generation Application Protocol) used in 5G networks.
+
+    This class provides methods and attributes specific to the NGAP protocol, facilitating
+    the management of various procedures such as PDU session management, UE context management,
+    UE mobility management, and more.
 
     Attributes:
         name: The name of the protocol. Is set to `"NGAP"`.
         root: The root node of the protocol graph.
-        actors: The names of all the actors involved in the protocol.
+        actors: The names of all actors involved in the protocol.
         capabilities: The list of possible capability values in the protocol.
     """
 
     def __init__(self):
         """Initializes the `NGAPProtocol` instance with all the nodes and edges required by the 
-        NGAP Protocol.
+        NGAP protocol.
         """
 
         super().__init__('NGAP')
-
-        self.capabilities: list[str] = []
         self._init()
-
-    def create_capability(self, capability: str, action: CapabilityAction) -> CapabilityNode:
-        """Create a new `CapabilityNode` instance correctly initialized.
-
-        Args:
-            capability: The capability contained by the new node.
-            action: The action contained by the new node.
-
-        Returns:
-            CapabilityNode: The newly created `CapabilityNode` instance.
-        """
-
-        node = CapabilityNode(0, action, capability)
-        self.add_node(node)
-        return node
-
-    @override
-    def _iterate_all_paths(self, actor: str,
-                           tag_filter: Callable[[EdgeTag], bool],
-                           max_visits: int) -> Iterator[ProtocolPath]:
-        # stack of capabilities associated with the current node
-        caps_stack: list[list[str]] = [[]]
-
-        def on_enter(_):
-            return
-
-        def skip_edge(edge: ProtocolEdge) -> bool:
-            return not tag_filter(edge) \
-                or (isinstance(edge.dst, CapabilityNode)
-                    and edge.dst.action == CapabilityAction.REQUIRE
-                    and edge.dst.capability not in caps_stack[-1])
-
-        def yield_path(edge: ProtocolEdge) -> bool:
-            # prepare the stack for the next recursion
-            caps_stack.append(list(caps_stack[-1]))
-
-            next_node = edge.dst
-            if isinstance(next_node, MessageNode) and actor == next_node.src:
-                # return the path only if at least the last node can be sent by the actor
-                # otherwise what should we fuzz?
-                return True
-
-            if isinstance(next_node, CapabilityNode):
-                self._update_capabilities(caps_stack[-1], next_node)
-
-            return False
-
-        def on_exit(_):
-            # pop capabilities for this call on the stack
-            caps_stack.pop()
-
-        def build_path(path: list[ProtocolEdge]):
-            return ProtocolPath(path, actor)
-
-        yield from self._dfs_traversal(
-            self.root, [], {}, max_visits, build_path, skip_edge, yield_path, on_enter, on_exit)
-
-    def _iterate_allowed_paths(self, allowed_paths: list[ProtocolPath], actor: str, tag_filter: Callable[[EdgeTag], bool]) -> Iterator[ProtocolPath]:
-        for path in super()._iterate_allowed_paths(allowed_paths, actor, tag_filter):
-            if self._check_capabilities(path):
-                yield path
-
-    @override
-    def _build_path_from_names(self, names: list[str]) -> ProtocolPath | None:
-        # this keeps track of the message index in the current recursive call
-        msg_idx_stack = [0]
-
-        # stack of capabilities associated with the current node
-        caps_stack: list[list[str]] = [[]]
-
-        # the previous current node in the recursion (initially we can't have one)
-        prev_node: ProtocolNode | None = None
-
-        def on_enter(path: list[ProtocolEdge]):
-            # update the previous node
-            nonlocal prev_node
-            prev_node = None if len(path) == 0 else path[-1].src
-
-        def skip_edge(edge: ProtocolEdge) -> bool:
-            curr_node = edge.src
-            next_node = edge.dst
-            if isinstance(prev_node, CapabilityNode) \
-                    and isinstance(curr_node, CapabilityNode) \
-                    and isinstance(next_node, CapabilityNode) \
-                    and prev_node == next_node:
-                # to avoid infinite loops
-                return True
-
-            if isinstance(next_node, MessageNode) \
-                    and next_node.msg.name != names[msg_idx_stack[-1]]:
-                return True
-
-            # if we don't have the required capability to visit the destination node, then skip
-            if isinstance(next_node, CapabilityNode) \
-                    and next_node.action == CapabilityAction.REQUIRE \
-                    and next_node.capability not in caps_stack[-1]:
-                return True
-
-            return False
-
-        def yield_path(edge: ProtocolEdge) -> bool:
-            # prepare the stack for the next recursion
-            msg_idx_stack.append(msg_idx_stack[-1])
-            caps_stack.append(list(caps_stack[-1]))
-
-            if isinstance(edge.dst, MessageNode):
-                # since we know that edge.dst.msg.name == names[msg_idx_stack[-2]] (because
-                # otherwise we would have skipped this edge) we can increment the new message index
-                msg_idx_stack[-1] += 1
-            elif isinstance(edge.dst, CapabilityNode):
-                self._update_capabilities(caps_stack[-1], edge.dst)
-
-            # if we reached the last element of the names' list, if they are equal we finally
-            # found a path
-            return msg_idx_stack[-1] == len(names)
-
-        def on_exit(_):
-            # since if we enter in another recursion level, we always push something on the stack
-            # (see yield_path), on the return we always need to pop something off the stack
-            msg_idx_stack.pop()
-            caps_stack.pop()
-
-        build_path = ProtocolPath
-
-        return next(self._dfs_traversal(
-            self.root, [], {}, 0, build_path, skip_edge, yield_path, on_enter, on_exit), None)
-
-    def _update_capabilities(self, caps: list[str], node: CapabilityNode):
-        """Update the capabilities based on the given node.
-
-        Args:
-            caps: The list of capabilities to update.
-            node: The node to update the capabilities from.
-        """
-
-        if node.action == CapabilityAction.ADD:
-            caps.append(node.capability)
-        elif node.action == CapabilityAction.REMOVE:
-            try:
-                caps.remove(node.capability)
-            except ValueError:
-                pass
-
-    def _check_capabilities(self, path: ProtocolPath) -> bool:
-        """Check if the given path is a valid path taking into account the capabilities required during its traversal.
-
-        Args:
-            path: Path to check.
-
-        Returns:
-            bool: `True` if `path` is valid, `False` otherwise.
-        """
-
-        caps = []
-        for edge in path.path:
-            node = edge.dst
-            if not isinstance(node, CapabilityNode):
-                continue
-
-            if node.action == CapabilityAction.REQUIRE:
-                if node.capability not in caps:
-                    return False
-            else:
-                self._update_capabilities(caps, node)
-
-        return True
 
     # pylint: disable=too-many-locals
     def _init(self):

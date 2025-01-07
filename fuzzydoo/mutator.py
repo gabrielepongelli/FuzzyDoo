@@ -12,6 +12,10 @@ class MutatorCompleted(FuzzyDooError):
     """Exception raised when a mutator has generated all of its possible mutations."""
 
 
+class MutatorNotApplicable(FuzzyDooError):
+    """Exception raised when a mutator cannot be applied to a particular istance."""
+
+
 class FuzzableError(FuzzyDooError):
     """Generic error for the `Fuzzable` interface."""
 
@@ -269,6 +273,9 @@ class Mutator(ABC):
         Returns:
             Mutation: A new `Mutation` object representing the random mutation performed on the 
                 input data.
+
+        Raises:
+            MutatorNotApplicable: If the mutator cannot be applied to the this specific data instance.
         """
 
 

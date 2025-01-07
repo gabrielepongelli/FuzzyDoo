@@ -8,14 +8,11 @@ import pathlib
 from random import Random
 from typing import Any
 
-from fuzzydoo.proto.protocol import ProtocolPath
-
-from .proto import Protocol, Message, MessageParsingError
+from .protocol import Protocol, ProtocolPath, Message, MessageParsingError
 from .publisher import Publisher, PublisherOperationError
 from .agent import AgentMultiplexer, Agent, AgentError, ExecutionContext
-from .encoder import Encoder, EncodingError
-from .decoder import Decoder, DecodingError
-from .mutator import Mutation, Mutator, MutatorCompleted
+from .transformer import Encoder, Decoder, EncodingError, DecodingError
+from .mutator import Mutation, Mutator, MutatorCompleted, MutatorNotApplicable
 from .utils.graph import Path
 from .utils.errs import FuzzyDooError
 from .utils.other import opened_w_error
@@ -232,8 +229,7 @@ class Engine:
         try:
             os.makedirs(self._run_path, exist_ok=True)
         except OSError as e:
-            msg = f"Could not create directory {self._run_path}: {e}"
-            raise SetupFailedError(msg) from e
+            raise SetupFailedError(f"Could not create directory {self._run_path}: {e}") from e
 
         self._logger.debug(
             "Created current run findings directory %s", self._run_path)
@@ -355,6 +351,7 @@ class Engine:
         self._logger.info('Seed: %s', hex(self._epoch_seed))
 
         # first we generate the mutations only
+        self._epoch_mutations = []
         success = self._fuzz_single_epoch(path, generate_only=True)
 
         # then we apply the mutations
@@ -382,8 +379,7 @@ class Engine:
         """
 
         if generate_only:
-            self._logger.info(
-                "Generating mutations for epoch #%s", self._current_epoch)
+            self._logger.info("Generating mutations for epoch #%s", self._current_epoch)
 
         self._epoch_random = Random(hashlib.sha512(
             self._epoch_seed.to_bytes((self._epoch_seed.bit_length() + 7) // 8 or 1)).digest())
@@ -394,11 +390,9 @@ class Engine:
         if generate_only:
             success, _ = self._fuzz_single_test_case(path, None, True)
             if success:
-                self._logger.info("Generated %s mutations",
-                                  len(self._epoch_mutations))
+                self._logger.info("Generated %s mutations", len(self._epoch_mutations))
             else:
-                self._logger.error(
-                    "An error occurred while generating the mutations")
+                self._logger.error("An error occurred while generating the mutations")
             return success
 
         # otherwise, run a test case for each mutation
@@ -588,74 +582,62 @@ class Engine:
                     try:
                         data = pub.receive()
                     except PublisherOperationError as e:
-                        msg = "Error while receiving message: " + str(e)
-                        raise TestCaseExecutionError(msg) from e
+                        raise TestCaseExecutionError(f"Error while receiving message: {e}") from e
 
                     to_be_fuzzed = path.pos + 1 == len(path.path)
                     self._logger.debug("Data received %s", data)
                     self._logger.debug("To be fuzzed: %s", to_be_fuzzed)
 
+                    try:
+                        self._logger.debug("Parsing message with parser %s", type(msg.msg))
+                        parsed_msg = msg.msg.parse(data)
+                    except MessageParsingError as e:
+                        raise TestCaseExecutionError(f"Error while parsing message: {e}") from e
+
                     # try to apply all the decoding steps, this even if the message is from the main
                     # actor becuase maybe it contains some info needed to decode future messages
-                    decoded_data = data
+                    decoded_msg = parsed_msg
                     try:
                         for dec in self.decoders:
-                            self._logger.debug(
-                                "Decoding message with decoder %s", type(dec))
-                            self._logger.debug("Message: %s", decoded_data)
-                            decoded_data = dec.decode(
-                                decoded_data, self.protocol, msg, to_be_fuzzed)
+                            self._logger.debug("Decoding message with decoder %s", type(dec))
+                            decoded_msg = dec.decode(decoded_msg, msg.src, msg.dst)
                     except DecodingError as e:
-                        msg = "Error while decoding message: " + str(e)
-                        raise TestCaseExecutionError(msg) from e
+                        raise TestCaseExecutionError(f"Error while decoding message: {e}") from e
 
-                    self._logger.debug("Decoded data %s", decoded_data)
+                    self._logger.debug("Decoded data %s", decoded_msg.raw())
 
                     if to_be_fuzzed:
-                        try:
-                            self._logger.debug(
-                                "Parsing message with parser %s", type(msg.msg))
-                            msg.msg.parse(decoded_data)
-                        except MessageParsingError as e:
-                            msg = "Error while parsing message: " + str(e)
-                            raise TestCaseExecutionError(msg) from e
-
                         # if the flag is set, generate mutations and stop the fuzzing process
                         if generate_only:
                             self._logger.debug("Generating mutations")
-                            self._epoch_mutations = self._generate_mutations(
-                                msg.msg)
+                            self._epoch_mutations = self._generate_mutations(decoded_msg)
                             mutations_generated = True
                         else:
                             # apply the mutation
                             self._logger.debug("Applying mutation")
-                            mutated_data = mutation[0].apply(
-                                msg.msg.get_content(mutation[1]))
-                            msg.msg.set_content(mutation[1], mutated_data)
-                            data = msg.msg.raw()
-                            self._logger.debug("Mutated data %s", data)
+                            mutated_data = mutation[0].apply(decoded_msg.get_content(mutation[1]))
+                            decoded_msg.set_content(mutation[1], mutated_data)
+                            self._logger.debug("Mutated data %s", decoded_msg.raw())
 
+                            encoded_msg = decoded_msg
                             try:
                                 for enc in self.encoders:
                                     self._logger.debug(
                                         "Encoding message with encoder %s", type(enc))
-                                    self._logger.debug("Message: %s", data)
-                                    data = enc.encode(data, self.protocol, msg)
+                                    encoded_msg = enc.encode(encoded_msg, msg.src, msg.dst)
                             except EncodingError as e:
-                                msg = "Error while encoding message: " + str(e)
-                                raise TestCaseExecutionError(msg) from e
+                                raise TestCaseExecutionError(f"Error while encoding message: {e}") from e
 
+                            data = encoded_msg.raw()
                             self._logger.debug("Encoded data %s", data)
 
                     if not mutations_generated:
                         # send the message data to the destination publisher
                         try:
-                            self._logger.debug(
-                                "Sending message to publisher %s", msg.dst)
+                            self._logger.debug("Sending message to publisher %s", msg.dst)
                             self.actors[msg.dst].send(data)
                         except PublisherOperationError as e:
-                            msg = "Error while sending message: " + str(e)
-                            raise TestCaseExecutionError(msg) from e
+                            raise TestCaseExecutionError(f"Error while sending message: {e}") from e
 
                         timestamp_last_message_sent = time.time()
 
@@ -705,7 +687,10 @@ class Engine:
                 pass
             return False, False
 
-        return True, fault_detected
+        if generate_only:
+            return mutations_generated, fault_detected
+        else:
+            return True, fault_detected
 
     def _generate_mutations(self, data: Message) -> list[tuple[Mutation, str]]:
         """Generates a list of mutations for the given data.
@@ -729,15 +714,19 @@ class Engine:
         while True:
             idx = self._epoch_random.randrange(len(mutators))
             mutator, fuzzable_path = mutators[idx]
-            mutation = mutator.mutate(data.get_content(fuzzable_path))
-            if mutation not in mutations:
-                mutations.append((mutation, fuzzable_path))
-
-            # if the mutator used is exhausted then remove it from the list of mutators
             try:
-                mutator.next()
-            except MutatorCompleted:
+                mutation = mutator.mutate(data.get_content(fuzzable_path))
+            except MutatorNotApplicable:
+                # if the mutator used cannot be applied to the current data instance then remove it
                 mutators = mutators[:idx] + mutators[idx + 1:]
+            else:
+                if mutation not in mutations:
+                    mutations.append((mutation, fuzzable_path))
+                try:
+                    mutator.next()
+                except MutatorCompleted:
+                    # if the mutator used is exhausted then remove it from the list of mutators
+                    mutators = mutators[:idx] + mutators[idx + 1:]
 
             if len(mutators) == 0 or len(mutations) >= self.max_test_cases_per_epoch:
                 break

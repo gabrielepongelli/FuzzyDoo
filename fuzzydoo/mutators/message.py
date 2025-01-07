@@ -2,7 +2,7 @@ from typing import Any, override
 from random import Random
 
 from ..mutator import Mutator, Mutation, MutatorCompleted, mutates
-from ..proto.message import Message
+from ..protocol import Message
 
 
 # TODO: import these values from some configs
@@ -32,7 +32,7 @@ class DelayedMessageMutator(Mutator):
         """
 
         return {
-            'delay_values': self._delay_values,
+            'delay_values': list(self._delay_values),
             'rand_state': self._rand.getstate(),
         }
 
@@ -95,7 +95,7 @@ class ReplayedMessageMutator(Mutator):
         """
 
         return {
-            'reply_values': self._reply_values,
+            'reply_values': list(self._reply_values),
             'rand_state': self._rand.getstate(),
         }
 

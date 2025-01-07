@@ -2,7 +2,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from .proto.protocol import ProtocolPath
+from .protocol import ProtocolPath
 from .publisher import PublisherSource
 from .utils.errs import FuzzyDooError
 from .utils.register import ClassRegister

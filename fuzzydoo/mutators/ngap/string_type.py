@@ -4,6 +4,7 @@ from random import Random
 from pycrate_asn1rt.setobj import ASN1Range
 
 from ...mutator import Mutator, Mutation, MutatorCompleted, mutates
+from ...utils.chars import TOTAL_CHARS, CHAR_RANGES
 from ...proto.ngap.types import *
 
 
@@ -54,7 +55,7 @@ class BitStrMutator(Mutator):
 
         return state
 
-    def _mutate(self, data: BitStrType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: BitStrType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -176,7 +177,7 @@ class OctStrMutator(Mutator):
 
         return state
 
-    def _mutate(self, data: OctStrType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: OctStrType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -248,23 +249,6 @@ class OctStrMutator(Mutator):
         return self._mutate(data, False, state)
 
 
-CHAR_RANGES = {
-    'ascii': [(0x00, 0x7f)],
-    'utf8': [(0x0000, 0xd7ff), (0xe000, 0x10ffff)],
-    'utf_16_be': [(0x0000, 0xd7ff), (0xe000, 0x10ffff)],
-    'utf_32_be': [(0x0000, 0xd7ff), (0xe000, 0x10ffff)],
-    'iso2022_jp_2004': [(0x00, 0x7e), (0x3040, 0x309f), (0x30a0, 0x30ff), (0x4e00, 0x9fff)]
-}
-
-TOTAL_CHARS = {
-    'ascii': sum(end - start + 1 for start, end in CHAR_RANGES['ascii']),
-    'utf8': sum(end - start + 1 for start, end in CHAR_RANGES['utf8']),
-    'utf_16_be': sum(end - start + 1 for start, end in CHAR_RANGES['utf_16_be']),
-    'utf_32_be': sum(end - start + 1 for start, end in CHAR_RANGES['utf_32_be']),
-    'iso2022_jp_2004': sum(end - start + 1 for start, end in CHAR_RANGES['iso2022_jp_2004'])
-}
-
-
 @mutates(StrUtf8Type, StrTeleType, StrT61Type, StrVidType, StrGraphType, StrGeneType, StrUnivType, StrBmpType)
 class GenericStrMutator(Mutator):
     """Mutator for generic string objects that generate random strings in their codec."""
@@ -319,7 +303,7 @@ class GenericStrMutator(Mutator):
             res += chr(code_point)
         return res
 
-    def _mutate(self, data: OctStrType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: BaseStringType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -379,7 +363,7 @@ class GenericStrMutator(Mutator):
         self._mutate(None, True)
 
     @override
-    def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: BaseStringType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 
 
@@ -418,7 +402,7 @@ class AlphabetStringMutator(Mutator):
 
         return state
 
-    def _mutate(self, data: AlphabeticalStringType, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: AlphabeticalStringType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are

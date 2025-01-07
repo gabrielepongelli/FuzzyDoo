@@ -113,7 +113,7 @@ class TimeMutator(Mutator):
                 res['fraction'],
                 res['zone'])
 
-    def _mutate(self, data, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: TimeUTCType | TimeGenType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -124,7 +124,7 @@ class TimeMutator(Mutator):
         rand = Random()
         rand.setstate(self._rand.getstate())
         utc = self._utc
-        extracted_values = self._extracted_values
+        extracted_values = set(self._extracted_values)
         set_state = utc is None
 
         if state is not None:
@@ -154,7 +154,7 @@ class TimeMutator(Mutator):
         self._mutate(None, True)
 
     @override
-    def mutate(self, data, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: TimeUTCType | TimeGenType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 
 

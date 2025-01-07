@@ -1,15 +1,16 @@
 from typing import Any, override
 from random import Random
 
-from pycrate_asn1rt.setobj import ASN1Set, ASN1Range
-
-from ...mutator import Mutator, Mutation, MutatorCompleted, mutates
-from ...proto.ngap.types import IntType
+from ...mutator import Mutator, Mutation, MutatorCompleted, MutatorNotApplicable, mutates
+from ...proto.nas.types import IntType, UintType, IntLEType, UintLEType
 
 
-@mutates(IntType)
+signed_integer_limits = lambda n_bits: (-(2 ** (n_bits - 1)), 2 ** (n_bits - 1))
+
+
+@mutates(IntType, UintType, IntLEType, UintLEType)
 class IntRandomMutator(Mutator):
-    """Mutator for `IntType` objects that generate random values in the integer boundaries."""
+    """Mutator for generic integer objects that generate random values in the integer boundaries."""
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -20,7 +21,7 @@ class IntRandomMutator(Mutator):
         self._range: tuple[int, int] | None = None  # [start, end)
         self._extracted_values: set[int] | None = None
 
-        # for cases in which the range size is =< 256, we directly store each possible value
+        # for cases in which there is a list of predefined values
         self._possible_values: list[int] | None = None
 
     def _export_state(self) -> dict:
@@ -28,12 +29,11 @@ class IntRandomMutator(Mutator):
 
         Returns:
             dict: A dictionary containing the following keys:
-                'rand_state': The state of the random number generator.
-                'range' (optional): The limits of the range values in which values should be
+                `'rand_state'`: The state of the random number generator.
+                `'range'` (optional): The limits of the range values in which values should be
                     generated.
-                'extracted_values' (optional): The set of already extracted values.
-                'possible_values' (optional): The list of possible values if the range size is =<
-                    256.
+                `'extracted_values'` (optional): The set of already extracted values.
+                `'possible_values'` (optional): The list of possible values if present.
         """
 
         state = {'rand_state': self._rand.getstate()}
@@ -49,20 +49,10 @@ class IntRandomMutator(Mutator):
 
         return state
 
-    def _range_limits(self, r: ASN1Range) -> tuple[int, int]:
-        """Extracts the range limits from the specified range.
-
-        Args:
-            r: The ASN.1 range object from which to extract the limits.
-
-        Returns:
-            tuple[int, int]: A tuple of the form [lower_bound, upper_bound).
-        """
-
-        # bounds are included for int ranges
-        return (r.lb, r.ub + 1)
-
-    def _mutate(self, data: IntType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self,
+                data: IntType | UintType | IntLEType | UintLEType | None,
+                update_state: bool,
+                state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -83,34 +73,20 @@ class IntRandomMutator(Mutator):
             extracted_values = state.get('extracted_values', None)
             possible_values = state.get('possible_values', None)
         elif set_state:
-            if data and data.constraints and 'val' in data.constraints:
-                # try to read the range limits from the data
-                ranges = data.constraints['val'].root
-
-                if len(ranges) == 1:
-                    # a single range, so we can use `range_limits`
-                    range_limits = self._range_limits(ranges[0])
-
-                    if range_limits[1] - range_limits[0] < 256:
-                        # there are only a few values, so enumerate them all
-                        possible_values = list(range(range_limits[0], range_limits[1]))
-                        range_limits = None
-                    else:
-                        extracted_values = set()
+            if data:
+                if data.possible_values:
+                    possible_values = data.possible_values
                 else:
-                    # multiple ranges, so we have to enumerate all the possible values
-                    possible_values = []
-                    for r in ranges:
-                        if isinstance(r, ASN1Set):
-                            # pylint: disable=protected-access
-                            possible_values += r._rr
-                            for _r in r._rv:
-                                curr_range = self._range_limits(_r)
-                                possible_values += list(range(curr_range[0], curr_range[1]))
-                        else:
-                            curr_range = self._range_limits(_r)
-                            possible_values += list(range(curr_range[0], curr_range[1]))
+                    if isinstance(data, (UintType, UintLEType)):
+                        limits = (0, 2**data.bit_length)
+                    else:
+                        limits = signed_integer_limits(data.bit_length)
 
+                    if data.bit_length <= 8:
+                        possible_values = list(range(limits[0], limits[1]))
+                    else:
+                        range_limits = limits
+                        extracted_values = set()
             else:
                 range_limits = (0, 2**256)
                 extracted_values = set()
@@ -147,14 +123,14 @@ class IntRandomMutator(Mutator):
         self._mutate(None, True)
 
     @override
-    def mutate(self, data: IntType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: IntType | UintType | IntLEType | UintLEType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 
 
-@mutates(IntType)
+@mutates(IntType, UintType, IntLEType, UintLEType)
 class IntEdgeMutator(Mutator):
-    """Mutator for `IntType` objects that generate random values that are at around the edges of the
-    allowed range.
+    """Mutator for generic integer objects that generate random values that are at around the edges 
+    of the allowed range.
     """
 
     _DELTA = 3
@@ -169,8 +145,8 @@ class IntEdgeMutator(Mutator):
 
         Returns:
             dict: A dictionary containing the following keys:
-                'rand_state': The state of the random number generator.
-                'possible_values': The list of possible values that haven't been already used.
+                `'rand_state'`: The state of the random number generator.
+                `'possible_values'`: The list of possible values that haven't been already used.
         """
 
         return {
@@ -194,21 +170,10 @@ class IntEdgeMutator(Mutator):
         possible_values += list(range(upper_bound - self._DELTA, upper_bound))
         return possible_values
 
-    def _generate_from_range(self, r: ASN1Range) -> list[int]:
-        """Generate edge values from the specified range.
-
-        Args:
-            r: The ASN.1 range object from which to extract the edge values.
-
-        Returns:
-            list[int]: A list of values in [lower_bound-2, lower_bound+2] and 
-                [upper_bound-2, upper_bound+2].
-        """
-
-        # bounds are included for int ranges
-        return self._generate_values_from_limits(r.lb, r.ub + 1)
-
-    def _mutate(self, data: IntType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self,
+                data: IntType | UintType | IntLEType | UintLEType | None,
+                update_state: bool,
+                state: dict[str, Any] | None = None) -> Mutation | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -223,18 +188,18 @@ class IntEdgeMutator(Mutator):
         if state is not None:
             rand.setstate(state['rand_state'])
             possible_values = state['possible_values']
-        elif data and data.constraints and 'val' in data.constraints:
-            # try to read the range limits from the data
-            ranges = data.constraints['val'].root
-            possible_values = []
-            for r in ranges:
-                if isinstance(r, ASN1Set):
-                    # pylint: disable=protected-access
-                    for _r in r._rv:
-                        possible_values += self._generate_from_range(_r)
-                else:
-                    possible_values += self._generate_from_range(r)
-            self._possible_values = possible_values
+        elif data:
+            if isinstance(data, (UintType, UintLEType)):
+                limits = (0, 2**data.bit_length)
+            else:
+                limits = signed_integer_limits(data.bit_length)
+
+            if limits[1] - limits[0] <= self._DELTA * 4:
+                # it doesn't make sense to apply
+                raise MutatorNotApplicable()
+
+            self._possible_values = possible_values = self._generate_values_from_limits(
+                limits[0], limits[1])
 
         if possible_values is None:
             self._possible_values = possible_values = self._generate_values_from_limits(0, 2**256)
@@ -256,7 +221,7 @@ class IntEdgeMutator(Mutator):
         self._mutate(None, True)
 
     @override
-    def mutate(self, data: IntType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: IntType | UintType | IntLEType | UintLEType, state: dict[str, Any] | None = None) -> Mutation:
         return self._mutate(data, False, state)
 
 

@@ -16,7 +16,7 @@ import yaml
 from ..agent import Agent, AgentError, ExecutionContext
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread, with_thread_safe_get_set
 from ..utils.register import register
-from ..proto.protocol import ProtocolPath
+from ..protocol import ProtocolPath
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 
@@ -52,6 +52,36 @@ NGAP_SUPPORTED_PATHS = [
                                'PDUSessionResourceReleaseCommandMessage',
                                'PDUSessionResourceReleaseResponseMessage',
                                'UplinkNASTransportMessage']
+]
+
+NAS_MM_UE_START = ['FGMMRegistrationRequestMessage', 'FGMMAuthenticationRequestMessage',
+                   'FGMMAuthenticationResponseMessage', 'FGMMSecurityModeCommandMessage',
+                   'FGMMSecurityModeCompleteMessage', 'FGMMRegistrationAcceptMessage',
+                   'FGMMRegistrationCompleteMessage', 'FGMMULNASTransportMessage',
+                   'FGMMConfigurationUpdateCommandMessage', 'FGMMDLNASTransportMessage']
+
+NAS_MM_SUPPORTED_PATHS = [
+    # ue deregister normal
+    NAS_MM_UE_START + ['FGMMMODeregistrationRequestMessage',
+                       'FGMMMODeregistrationAcceptMessage', 'FGMMRegistrationRequestMessage'],
+
+    # ue deregister disable 5g
+    NAS_MM_UE_START + ['FGMMMODeregistrationRequestMessage', 'FGMMMODeregistrationAcceptMessage'],
+
+    # ue deregister remove sim/switch off
+    NAS_MM_UE_START + ['FGMMMODeregistrationRequestMessage'],
+
+    # ue pdu session release
+    NAS_MM_UE_START + ['FGMMULNASTransportMessage', 'FGMMDLNASTransportMessage',
+                       'FGMMULNASTransportMessage'],
+]
+
+NAS_SM_UE_START = ['FGSMPDUSessionEstabRequestMessage', 'FGSMPDUSessionEstabAcceptMessage']
+
+NAS_SM_SUPPORTED_PATHS = [
+    # ue pdu session release
+    NAS_SM_UE_START + ['FGSMPDUSessionReleaseRequestMessage',
+                       'FGSMPDUSessionReleaseCommandMessage', 'FGSMPDUSessionReleaseCompleteMessage'],
 ]
 
 
@@ -398,6 +428,19 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
         self.protocol: str = protocol
         self.protocol_path_idx: int = protocol_path_idx
 
+    def _path_idx_to_cmd_idx(self) -> int | None:
+        """Map the given path index to the corresponding cli command index."""
+
+        match self.protocol:
+            case 'NGAP':
+                return self.protocol_path_idx
+            case 'NAS-MM':
+                return self.protocol_path_idx + 1
+            case 'NAS-SM':
+                return 4
+            case _:
+                return None
+
     def _exec_cli_on_path_idx(self):
         """Execute the UERANSIM cli command that corresponds to the given path index.
 
@@ -405,10 +448,7 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
             AgentError: If some error occurred during the execution of the cli command.
         """
 
-        if self.protocol != 'NGAP':
-            return
-
-        match self.protocol_path_idx:
+        match self._path_idx_to_cmd_idx():
             case 0:
                 # nr-cli GNB-NODE-NAME --exec "ue-list"
                 res = UERANSIMCli.run_cmd(self.cli_path,
@@ -619,7 +659,7 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
     Note: This agent needs root privileges in order to work properly.
     """
 
-    _SUPPORTED_PROTOCOLS: list[str] = ['NGAP']
+    _SUPPORTED_PROTOCOLS: list[str] = ['NGAP', 'NAS-MM', 'NAS-SM']
 
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)
@@ -671,10 +711,18 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
         """
 
         if protocol == "NGAP":
-            names = subpath.names
-            for i, path in enumerate(NGAP_SUPPORTED_PATHS):
-                if self._is_subpath(path, names):
-                    return i
+            supported_paths = NGAP_SUPPORTED_PATHS
+        elif protocol == "NAS-MM":
+            supported_paths = NAS_MM_SUPPORTED_PATHS
+        elif protocol == "NAS-SM":
+            supported_paths = NAS_SM_SUPPORTED_PATHS
+        else:
+            return None
+
+        names = subpath.names
+        for i, path in enumerate(supported_paths):
+            if self._is_subpath(path, names):
+                return i
 
         return None
 
@@ -708,7 +756,15 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
 
     @override
     def get_supported_paths(self, protocol: str) -> list[list[str]]:
-        return NGAP_SUPPORTED_PATHS if protocol == "NGAP" else []
+        match protocol:
+            case 'NGAP':
+                return NGAP_SUPPORTED_PATHS
+            case 'NAS-MM':
+                return NAS_MM_SUPPORTED_PATHS
+            case 'NAS-SM':
+                return NAS_SM_SUPPORTED_PATHS
+            case _:
+                return []
 
     @override
     def on_test_start(self, ctx: ExecutionContext):
@@ -724,11 +780,16 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
         self.orchestrator = OrchestratorThread(
             self.gnb, self.ue, self.cli_path, ctx.protocol_name, subpath_idx)
 
+        path_len = len(ctx.path.names)
         if ctx.protocol_name == 'NGAP':
-            path_len = len(ctx.path.names)
             self.orchestrator.also_start_ue = path_len > len(NGAP_GNB_START)
-            self.orchestrator.also_exec_cli = path_len > len(
-                NGAP_GNB_START_UE_START)
+            self.orchestrator.also_exec_cli = path_len > len(NGAP_GNB_START_UE_START)
+        else:
+            self.orchestrator.also_start_ue = True
+            if ctx.protocol_name == 'NAS-MM':
+                self.orchestrator.also_exec_cli = path_len > len(NAS_MM_UE_START)
+            elif ctx.protocol_name == 'NAS-SM':
+                self.orchestrator.also_exec_cli = path_len > len(NAS_SM_UE_START)
 
         self.orchestrator.start()
 

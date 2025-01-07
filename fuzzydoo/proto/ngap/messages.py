@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Any, Type, cast
+from typing import Any, Type, cast, override
 
 import pycrate_asn1dir.NGAP as ngap
 from pycrate_core.utils import PycrateErr
@@ -7,7 +7,7 @@ from pycrate_asn1rt.asnobj import ASN1Obj
 
 from ...mutator import Fuzzable, QualifiedNameFormatError, ContentNotFoundError, Mutator, mutable
 from ...utils.register import register
-from ..message import Message, MessageParsingError
+from ...protocol import Message, MessageParsingError
 from .types import ASN1Type, EnumType, IntType, map_type
 
 
@@ -54,14 +54,14 @@ class NGAPMessage(Message):
     def content(self) -> Any | None:
         return self._content.get_val()
 
-    def parse(self, data: bytes):
+    @override
+    def parse(self, data: bytes) -> "NGAPMessage":
         ngap_pdu = ngap.NGAP_PDU_Descriptions.NGAP_PDU
         try:
             from_aper = cast(Callable[[Any], None], ngap_pdu.from_aper)
             from_aper(data)
         except PycrateErr as e:
-            raise MessageParsingError(
-                f"Failed to parse NGAP message: {e}") from e
+            raise MessageParsingError(f"Failed to parse NGAP message: {e}") from e
 
         try:
             ngap_pdu.get_at([self._msg_type, 'value', self._body_type])
@@ -70,9 +70,13 @@ class NGAPMessage(Message):
             raise MessageParsingError(
                 f"Wrong message type: {pdu_content[0]}:{pdu_content[1]['value'][0]}") from e
 
-        self._content = ngap_pdu
-        self._leaf_paths = [path for path, _ in ngap_pdu.get_val_paths()]
+        # pylint: disable=protected-access
+        new_msg: NGAPMessage = self.from_name(self._protocol, self.__class__.__name__)
+        new_msg._content = ngap_pdu
+        new_msg._leaf_paths = [path for path, _ in ngap_pdu.get_val_paths()]
+        return new_msg
 
+    @override
     def raw(self) -> bytes:
         modified_data = self._content.to_aper()
 
@@ -186,8 +190,7 @@ class NGAPMessage(Message):
         res = super().mutators()
         for path in self._leaf_paths:
             redacted = [str(p) for p in self._redact_path(path)]
-            leaf = self.get_content(
-                self.name + '.' + ".".join(redacted))
+            leaf = self.get_content(self.name + '.' + ".".join(redacted))
             res += leaf.mutators()
         return res
 
