@@ -3,7 +3,7 @@ import os
 import logging
 from pathlib import Path
 from collections.abc import Callable
-from argparse import ArgumentParser, FileType, HelpFormatter, _SubParsersAction, ArgumentError, Namespace
+from argparse import ArgumentParser, FileType, RawTextHelpFormatter, _SubParsersAction, ArgumentError, Namespace
 from typing import Any, NoReturn, cast
 
 import yaml
@@ -21,6 +21,10 @@ from fuzzydoo.engine import Engine
 
 PROGRAM_NAME = 'fuzzydoo'
 PROGRAM_DESCRIPTION = 'Command line tool for fuzzing 5G core networks and network functions.'
+REPLAY_EXAMPLES = f"""Examples:
+    Replay the 4-th epoch using the seed 0x12345678: '{PROGRAM_NAME} replay ./config.yaml 0x12345678 4'
+    Replay the 27-th test-case of the 9-th epoch using the seed 0x12345678: '{PROGRAM_NAME} replay ./config.yaml 0x12345678 9 --test-case 27'
+"""
 
 DEFAULT_OUTPUT_DIR = Path.cwd() / 'out'
 DEFAULT_MAX_ATTEMPTS = 5
@@ -34,10 +38,10 @@ DEFAULT_LOG_LEVEL = 'info'
 # Helper classes and functions
 ######
 
-class CustomCmdHelpFormatter(HelpFormatter):
+class CustomCmdHelpFormatter(RawTextHelpFormatter):
     """A custom formatter for argparse help messages.
 
-    This formatter extends the default `HelpFormatter` to provide the following enhancements:
+    This formatter extends the default `RawTextHelpFormatter` to provide the following enhancements:
     1. Enlarges the help text for long named arguments.
     2. Removes the choice list for subcommands in the help menu.
     3. Customizes the usage prefix.
@@ -586,6 +590,22 @@ def configure_logging(level: str):
         handler.setFormatter(formatter)
 
 
+def check(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None:
+    """Validate configurations.
+
+    Parameters:
+        parser: The parser for the command-line arguments.
+        sub: The subparser for the `'check'` command.
+        args: The parsed command-line arguments.
+
+    The function parses the configuration file and extracts the necessary arguments for the 
+    `Engine` class.
+    """
+
+    err = lambda msg: error(parser, sub, msg)
+    parse_configs(args.config, lambda msg: err('conf: ' + msg))
+
+
 def fuzz(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None:
     """Start the fuzzing process.
 
@@ -624,6 +644,81 @@ def fuzz(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None:
     engine.run()
 
 
+def replay(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None:
+    """Replay an epoch/test case.
+
+    Parameters:
+        parser: The parser for the command-line arguments.
+        sub: The subparser for the `'replay'` command.
+        args: The parsed command-line arguments.
+
+    The function performs the following steps:
+    1. If a log level is provided in the command-line arguments, it configures the logging system.
+    2. Parses the configuration file and extracts the necessary arguments for the `Engine` class.
+    3. Iterates through the agents and sets their options.
+    4. Creates an Engine instance with the extracted arguments and runs it.
+    """
+
+    err = lambda msg: error(parser, sub, msg)
+    if (args.epoch and args.test_case) or not (args.epoch or args.test_case):
+        err('replay either an epoch or a test case')
+
+    if args.log_level is not None:
+        configure_logging(args.log_level)
+
+    engine_args = parse_configs(args.config, lambda msg: err('conf: ' + msg))
+    logging.info("Config file parsed successfully")
+    logging.info("Main seed: %s", hex(engine_args['main_seed']))
+
+    agents = engine_args.get('agents', [])
+    for i, agent_record in enumerate(agents):
+        agent, options = cast(tuple[Agent, dict], agent_record)
+        logging.debug('Setting options for agent %s', agent.name)
+        try:
+            agent.set_options(**options)
+        except AgentError as e:
+            logging.critical("%s", e)
+            sys.exit(1)
+        engine_args['agents'][i] = agent
+
+    engine = Engine(**engine_args)
+    engine.replay(args.epoch - 1, args.seed, args.test_case - 1)
+
+
+def add_common_options(parser: ArgumentParser, with_logs: bool = True):
+    """Add all the options that are common to all the parsers.
+
+    This function will add the following options to `parser`:
+    1. The help option.
+    2. The log level option.
+
+    Args:
+        parser: The parser to add the common options to.
+        with_logs (optional): Whether to include the log level option in the parser. Defaults to `True`.
+    """
+
+    parser.add_argument('-h', '--help', action='help',
+                        help='Show this help message and exit')
+
+    if with_logs:
+        log_lvl_choices = ['debug', 'info', 'warning', 'error']
+        log_lvl_help_msg = f'Set the logging level ({", ".join(
+            [f'"{l}"' for l in log_lvl_choices])}) (default: "{DEFAULT_LOG_LEVEL}")'
+        parser.add_argument('-l', '--log-level', choices=log_lvl_choices,
+                            help=log_lvl_help_msg, default=DEFAULT_LOG_LEVEL, metavar='LEVEL')
+
+
+def remove_positionals_from_help(parser: ArgumentParser):
+    """Remove the `positional arguments`' section from the help output.
+
+    Args:
+        parser: The parser to modify.
+    """
+
+    # pylint: disable=protected-access
+    parser._action_groups = [g for g in parser._action_groups if g.title != 'positional arguments']
+
+
 def main():
     """The main function for the fuzzing tool.
 
@@ -636,7 +731,7 @@ def main():
         prog=PROGRAM_NAME,
         description=PROGRAM_DESCRIPTION,
         add_help=False,
-        usage="%(prog)s [OPTIONS] COMMAND",
+        usage="%(prog)s COMMAND [OPTIONS]",
         epilog="Run '%(prog)s COMMAND --help' for more information on a command.",
         exit_on_error=False,
         formatter_class=CustomCmdHelpFormatter
@@ -647,43 +742,66 @@ def main():
     subparsers = parser.add_subparsers(
         required=True, title='Commands', metavar='COMMAND')
 
-    # global options
-    parser.add_argument('-h', '--help', action='help',
-                        help='Show this help message and exit')
-    log_lvl_choices = ['debug', 'info', 'warning', 'error']
-    log_lvl_help_msg = f'Set the logging level ({", ".join(
-        [f'"{l}"' for l in log_lvl_choices])}) (default: "{DEFAULT_LOG_LEVEL}")'
-    parser.add_argument('-l', '--log-level', choices=log_lvl_choices,
-                        help=log_lvl_help_msg, default=DEFAULT_LOG_LEVEL, metavar='LEVEL')
-
     # 'fuzz' subcommand options
     parser_fuzz = subparsers.add_parser(
         name='fuzz',
         help='Start the fuzzing process',
-        description='Start the fuzzing process from a configuration file',
+        description='Start the fuzzing process from a configuration file.',
         add_help=False,
         usage=f"{PROGRAM_NAME} fuzz CONFIG_FILE [OPTIONS]",
         formatter_class=CustomCmdHelpFormatter
     )
     # pylint: disable=protected-access
     parser_fuzz._optionals.title = parser_fuzz._optionals.title.capitalize()
-    parser.add_argument('config', type=FileType(
-        'r', encoding='utf8'), metavar='CONFIG_FILE')
-    parser_fuzz.add_argument('-h', '--help', action='help',
-                             help='Show this help message and exit')
+    parser_fuzz.add_argument('config', type=FileType('r', encoding='utf8'), metavar='CONFIG_FILE')
+    add_common_options(parser_fuzz)
     parser_fuzz.set_defaults(func=lambda args: fuzz(parser, parser_fuzz, args))
+    remove_positionals_from_help(parser_fuzz)
 
-    # remove the 'positional arguments' section from the help message
-    parser._action_groups = [
-        g for g in parser._action_groups if g.title != 'positional arguments']
+    # 'check' subcommand options
+    parser_check = subparsers.add_parser(
+        name='check',
+        help='Check configurations',
+        description='Check that the configuration file provided is valid. If it is not valid, an error message will be printed.',
+        add_help=False,
+        usage=f"{PROGRAM_NAME} check CONFIG_FILE [OPTIONS]",
+        formatter_class=CustomCmdHelpFormatter
+    )
+    # pylint: disable=protected-access
+    parser_check._optionals.title = parser_check._optionals.title.capitalize()
+    parser_check.add_argument('config', type=FileType('r', encoding='utf8'), metavar='CONFIG_FILE')
+    add_common_options(parser_check, with_logs=False)
+    parser_check.set_defaults(func=lambda args: check(parser, parser_check, args))
+    remove_positionals_from_help(parser_check)
+
+    # 'replay' subcommand options
+    parser_replay = subparsers.add_parser(
+        name='replay',
+        help='Re-perform tests',
+        description='Re-perform an epoch or a single test case.',
+        add_help=False,
+        epilog=REPLAY_EXAMPLES,
+        usage=f"{PROGRAM_NAME} replay CONFIG_FILE SEED EPOCH [OPTIONS]",
+        formatter_class=CustomCmdHelpFormatter
+    )
+    # pylint: disable=protected-access
+    parser_replay._optionals.title = parser_replay._optionals.title.capitalize()
+    parser_replay.add_argument('config', type=FileType('r', encoding='utf8'), metavar='CONFIG_FILE')
+    parser_replay.add_argument('seed', type=lambda n: int(n, 0), metavar='SEED')
+    parser_replay.add_argument('epoch', type=int, metavar='EPOCH')
+    add_common_options(parser_replay)
+    parser_replay.add_argument('-tc', '--test-case', type=int,
+                               help='The number of the test case inside the specified epoch to replay')
+    parser_replay.set_defaults(func=lambda args: replay(parser, parser_replay, args))
+    remove_positionals_from_help(parser_replay)
 
     try:
         args = parser.parse_args()
         args.func(args)
     except ArgumentError as e:
         # extract the subcommand name (if any)
-        subparser = parser
         for arg in sys.argv[1:]:
             if arg in subparsers.choices:
-                subparser = subparsers.choices[arg]
-        error(parser, subparser, str(e))
+                error(parser, subparsers.choices[arg], str(e))
+        parser.print_help()
+        sys.exit(1)

@@ -5,6 +5,7 @@ import datetime
 import hashlib
 import sys
 import pathlib
+import itertools
 from random import Random
 from typing import Any
 
@@ -265,11 +266,58 @@ class Engine:
         self.end_time = time.time()
         return result
 
+    def replay(self, n_epoch: int, seed: int, n_test_case: int | None = None) -> bool:
+        """Replay the epoch/test case specified using the given seed.
+
+        Args:
+            n_epoch: Epoch number to replay.
+            seed: Seed value to use for the replay.
+            n_test_case (optional): Test case number to replay. If `None` is provided, the entire 
+                epoch will be replayed. Defaults to `None`.
+
+        Returns:
+            `True` if the epoch is successfully fuzzed, `False` otherwise.
+        """
+
+        self._logger.info("Starting run setup")
+        try:
+            self._setup_generic_run()
+        except SetupFailedError as e:
+            self._logger.error("%s", str(e))
+            self._logger.error("Run setup failed")
+            return False
+        self._logger.info("Run setup completed")
+
+        self.start_time = time.time()
+        self._total_cases_fuzzed = 0
+
+        try:
+            paths = self._agent.get_supported_paths(self.protocol.name)
+        except AgentError:
+            return False
+
+        self._current_epoch = n_epoch
+        if len(paths) > 0:
+            paths = [self.protocol.build_path(path) for path in paths]
+            paths = [p for p in paths if p is not None]
+        else:
+            paths = None
+
+        path = next(itertools.islice(
+            self.protocol.iterate_as(self.actor, allowed_paths=paths), n_epoch, None))
+        result = self._run_epoch(path, seed, n_test_case)
+        self._current_epoch = None
+
+        self._agent.on_shutdown()
+
+        self.end_time = time.time()
+        return result
+
     def _fuzz_protocol(self, paths: list[list[str]]) -> bool:
         """Fuzz all the possible routes for the current protocol.
 
         This function iterates over all the supported paths in the current protocol and fuzzes each
-        path using the `fuzz_epoch` method. If there is no specific supported path, this function
+        path using the `_run_epoch` method. If there is no specific supported path, this function
         iterates over all the possible paths in the current protocol.
 
         Args:
@@ -295,7 +343,7 @@ class Engine:
 
         for path in self.protocol.iterate_as(self.actor, allowed_paths=paths):
             epoch_seed = epoch_seed_generator.randint(0, sys.maxsize * 2 + 1)
-            res = self.fuzz_epoch(path, epoch_seed)
+            res = self._run_epoch(path, epoch_seed)
             if not res:
                 break
 
@@ -304,12 +352,14 @@ class Engine:
 
         return res
 
-    def fuzz_epoch(self, path: ProtocolPath, seed: int) -> bool:
-        """Fuzz a single epoch on the given path.
+    def _run_epoch(self, path: ProtocolPath, seed: int, n_test_case: int | None = None) -> bool:
+        """Run a single epoch on the given path.
 
         Args:
             path: Path in the protocol to be fuzzed.
             seed: Seed value for the current epoch.
+            n_test_case (optional): The number of the single test case to be executed. If `None` is 
+                provided, the entire epoch will be executed. Defaults to `None`.
 
         Returns:
             `True` if the epoch is completed without errors, `False` otherwise.
@@ -352,11 +402,11 @@ class Engine:
 
         # first we generate the mutations only
         self._epoch_mutations = []
-        success = self._fuzz_single_epoch(path, generate_only=True)
+        success = self._fuzz_path(path, generate_only=True)
 
         # then we apply the mutations
         if success:
-            success = self._fuzz_single_epoch(path)
+            success = self._fuzz_path(path, n_test_case=n_test_case)
 
         if self._current_epoch is not None:
             self._logger.info("Epoch #%s terminated", self._current_epoch)
@@ -366,13 +416,15 @@ class Engine:
 
         return success
 
-    def _fuzz_single_epoch(self, path: ProtocolPath, generate_only: bool = False) -> bool:
-        """Fuzz a single epoch for the current protocol.
+    def _fuzz_path(self, path: ProtocolPath, generate_only: bool = False, n_test_case: int | None = None) -> bool:
+        """Fuzz the specified protocol path.
 
         Args:
             path: Path in the protocol to be fuzzed.
             generate_only: A flag indicating whether mutations should be only generated and not
-            applied.
+                applied.
+            n_test_case (optional): The number of the single test case to be executed. If `None` is 
+                provided, the entire epoch will be executed. Defaults to `None`.
 
         Returns:
             `True` if the epoch is completed without errors, `False` otherwise.
@@ -395,12 +447,21 @@ class Engine:
                 self._logger.error("An error occurred while generating the mutations")
             return success
 
+        # if we have a specific test case to run, run that test case
+        if n_test_case is not None:
+            try:
+                mutation = self._epoch_mutations[n_test_case]
+            except IndexError:
+                self._logger.error("Test case number %s does not exist", n_test_case)
+                return False
+
+            success, _ = self._fuzz_single_test_case(path, mutation)
+
         # otherwise, run a test case for each mutation
         for mutation in self._epoch_mutations:
             success, fault_found = self._fuzz_single_test_case(path, mutation)
             if not success:
-                self._logger.error(
-                    "An error occurred while executing the epoch")
+                self._logger.error("An error occurred while executing the epoch")
                 break
 
             self._epoch_cases_fuzzed += 1
@@ -429,18 +490,15 @@ class Engine:
         try:
             os.mkdir(test_case_path)
         except OSError as e:
-            self._logger.warning(
-                "Could not create directory '%s': %s", test_case_path, e)
-            self._logger.warning(
-                "Skipping saving findings for the current test case")
+            self._logger.warning("Could not create directory '%s': %s", test_case_path, e)
+            self._logger.warning("Skipping saving findings for the current test case")
             return
 
         for name, content in data:
             finding_path = test_case_path / name
             with opened_w_error(finding_path, "wb") as (f, err):
                 if err:
-                    self._logger.warning(
-                        "Failed to save '%s': %s", finding_path, str(err))
+                    self._logger.warning("Failed to save '%s': %s", finding_path, str(err))
                 else:
                     f.write(content)
 
@@ -570,12 +628,21 @@ class Engine:
             for msg in path:
                 pub = self.actors[msg.src]
 
-                while not pub.data_available():
+                try:
+                    data_available = pub.data_available()
+                except PublisherOperationError as e:
+                    raise TestCaseExecutionError(f"Error while checking for data availability: {e}") from e
+                while not data_available:
                     delta = time.time() - timestamp_last_message_sent
                     if delta >= self.wait_time_before_test_end:
                         self._logger.warning("Timeout reached (threshold: %.4fs)",
                                              self.wait_time_before_test_end)
                         break
+
+                    try:
+                        data_available = pub.data_available()
+                    except PublisherOperationError as e:
+                        raise TestCaseExecutionError(f"Error while checking for data availability: {e}") from e
                 else:
                     self._logger.debug("Data available from %s", msg.src)
 
@@ -732,46 +799,6 @@ class Engine:
                 break
 
         return mutations
-
-    def fuzz_test_case(self, path: Path, mutation_type: str, mutator_state: Any, mutated_field: str, mutated_entity_qualified_name: str):
-        """Fuzz a given test case from a given path.
-
-        Args:
-            path: Path in the protocol to be fuzzed.
-            mutation_type: Type of mutation to be applied.
-            mutator_state: State of the mutator to be used.
-            mutated_field: The name of the field in the `Fuzzable` object that was mutated.
-            mutated_entity_qualified_name: The qualified name of the `Fuzzable` object that was
-                mutated.
-        """
-
-        # pylint: disable=import-outside-toplevel
-        from pydoc import locate
-
-        try:
-            skipped = self._agent.skip_epoch(
-                ExecutionContext(self.protocol.name, path))
-        except AgentError as e:
-            self._logger.error(str(e))
-            self._agent.on_shutdown()
-            return
-
-        if skipped:
-            self._logger.info("Test skipped by agents due to skipped epoch")
-            self._agent.on_shutdown()
-            return
-
-        mutation = (Mutation(locate(mutation_type),
-                             mutator_state,
-                             mutated_field),
-                    mutated_entity_qualified_name)
-
-        try:
-            self._fuzz_single_test_case(path, mutation)
-        except FuzzingEngineError as e:
-            self._logger.error("%s", str(e))
-
-        self._agent.on_shutdown()
 
 
 __all__ = ['Engine']
