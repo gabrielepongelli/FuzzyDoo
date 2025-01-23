@@ -54,6 +54,21 @@ class GrpcClientAgent(Agent):
             raise AgentError(response.error)
 
     @override
+    def reset(self):
+        try:
+            # pylint: disable=no-member
+            response = self._stub.resetAgent(agent_pb2.RequestMessage())
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
+
+    @override
     def get_supported_paths(self, protocol: str) -> list[list[str]]:
         try:
             # pylint: disable=no-member

@@ -8,12 +8,6 @@ from typing import Any, NoReturn, cast
 
 import yaml
 
-from fuzzydoo.protocol import Protocol, ProtocolError
-from fuzzydoo.transformer import Encoder, Decoder, TransformerError
-from fuzzydoo.agent import Agent, AgentError
-from fuzzydoo.publisher import Publisher, PublisherSource, PublisherError
-from fuzzydoo.engine import Engine
-
 
 ######
 # Configurations and default values
@@ -22,8 +16,9 @@ from fuzzydoo.engine import Engine
 PROGRAM_NAME = 'fuzzydoo'
 PROGRAM_DESCRIPTION = 'Command line tool for fuzzing 5G core networks and network functions.'
 REPLAY_EXAMPLES = f"""Examples:
-    Replay the 4-th epoch using the seed 0x12345678: '{PROGRAM_NAME} replay ./config.yaml 0x12345678 4'
-    Replay the 27-th test-case of the 9-th epoch using the seed 0x12345678: '{PROGRAM_NAME} replay ./config.yaml 0x12345678 9 --test-case 27'
+    Replay all the 2-nd run using the seed 0x12345678: '{PROGRAM_NAME} replay ./config.yaml 0x12345678 2'
+    Replay the 4-th epoch of the 1-st run using the seed 0x12345678: '{PROGRAM_NAME} replay ./config.yaml 0x12345678 1 --epoch 4'
+    Replay the 27-th test-case of the 9-th epoch of the 3-rd run using the seed 0x12345678: '{PROGRAM_NAME} replay ./config.yaml 0x12345678 3 --epoch 9 --test-case 27'
 """
 
 DEFAULT_OUTPUT_DIR = Path.cwd() / 'out'
@@ -139,9 +134,12 @@ def check_attr(config: dict, attr_name: str, attr_type: type, err: Callable[[str
             returned. If the attribute is missing or of an incorrect type, the function calls the
             error handler.
     """
-    if attr_name not in config:
+
+    if attr_name != "" and attr_name not in config:
         err(f"missing '{attr_name}' attribute")
-    if not isinstance(config[attr_name], attr_type):
+
+    to_check = config if attr_name == "" else config[attr_name]
+    if not isinstance(to_check, attr_type):
         if attr_type is int:
             attr_type = "a number"
         elif attr_type is str:
@@ -152,10 +150,14 @@ def check_attr(config: dict, attr_name: str, attr_type: type, err: Callable[[str
             attr_name = "an object"
         else:
             attr_type = "a " + str(attr_type)
-        err(f"the '{attr_name}' attribute should be {attr_type}")
+
+        if attr_name == "":
+            err(f"the data should be {attr_type}")
+        else:
+            err(f"the '{attr_name}' attribute should be {attr_type}")
 
 
-def parse_agent(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]) -> tuple[Agent, dict] | NoReturn:
+def parse_agent(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]) -> tuple | NoReturn:
     """Parse an agent configuration.
 
     Args:
@@ -164,10 +166,12 @@ def parse_agent(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]
         err: A callable that handles error messages, typically by raising an exception.
 
     Returns:
-        tuple[Agent, dict] | NoReturn: A tuple containing the created `Agent` instance and a
-            dictionary of options. If an error occurs during parsing or agent creation, the
-            function calls the error handler.
+        tuple | NoReturn: A tuple containing the created `Agent` instance and a dictionary of 
+            options. If an error occurs during parsing or agent creation, the function calls the 
+            error handler.
     """
+
+    from fuzzydoo.agent import Agent, AgentError
 
     check_attr(conf, 'name', str, err)
 
@@ -200,7 +204,7 @@ def parse_agent(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]
     return (a, options)
 
 
-def parse_publisher(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]) -> list[tuple[str, Publisher]] | NoReturn:
+def parse_publisher(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]) -> list[tuple] | NoReturn:
     """Parse a publisher configuration.
 
     Args:
@@ -210,10 +214,12 @@ def parse_publisher(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRet
         err: A callable that handles error messages, typically by raising an exception.
 
     Returns:
-        list[tuple[str, Publisher]] | NoReturn: A list of tuples where each tuple contains an actor
-            name and a `Publisher` instance. If an error occurs during parsing or publisher
-            creation, the function calls the error handler.
+        list[tuple] | NoReturn: A list of tuples where each tuple contains an actor name and a 
+            `Publisher` instance. If an error occurs during parsing or publisher creation, the 
+            function calls the error handler.
     """
+
+    from fuzzydoo.publisher import Publisher, PublisherSource, PublisherError
 
     check_attr(conf, 'name', str, err)
     check_attr(conf, 'actors', list, err)
@@ -260,7 +266,7 @@ def parse_publisher(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRet
     return res
 
 
-def parse_encoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]) -> Encoder | NoReturn:
+def parse_encoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]) -> Any | NoReturn:
     """Parse an encoder configuration.
 
     Args:
@@ -269,9 +275,11 @@ def parse_encoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRetur
         err: A callable that handles error messages, typically by raising an exception.
 
     Returns:
-        Encoder | NoReturn: The new `Encoder` instance. If an error occurs during parsing 
+        Any | NoReturn: The new `Encoder` instance. If an error occurs during parsing 
             or encoder creation, the function calls the error handler.
     """
+
+    from fuzzydoo.transformer import Encoder, TransformerError
 
     check_attr(conf, 'name', str, err)
 
@@ -302,7 +310,7 @@ def parse_encoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRetur
     return enc
 
 
-def parse_decoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]) -> Decoder | NoReturn:
+def parse_decoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]) -> Any | NoReturn:
     """Parse a decoder configuration.
 
     Args:
@@ -311,9 +319,11 @@ def parse_decoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRetur
         err: A callable that handles error messages, typically by raising an exception.
 
     Returns:
-        Decoder | NoReturn: The new `Decoder` instance. If an error occurs during parsing 
+        Any | NoReturn: The new `Decoder` instance. If an error occurs during parsing 
             or decoder creation, the function calls the error handler.
     """
+
+    from fuzzydoo.transformer import Decoder, TransformerError
 
     check_attr(conf, 'name', str, err)
 
@@ -334,7 +344,7 @@ def parse_decoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRetur
         args = {}
 
     try:
-        dec = Encoder.from_name(conf['name'], **args)
+        dec = Decoder.from_name(conf['name'], **args)
     except TransformerError as e:
         err(str(e))
 
@@ -426,70 +436,60 @@ def resolve_references(references: list[list[list, int, list, Callable]]) -> Non
             final_list[idx] = solved_ref
 
 
-def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, Any] | NoReturn:
-    """Parse a configuration file.
-
-    This function reads the configuration data from the provided file object and parses it. It then 
-    validates and populates a dictionary with the parsed configuration data, ready to be used by an 
-    `Engine` instance. If any errors occur during parsing or validation, the function calls the 
-    provided error handler function with an appropriate error message.
-
-    The parsed configuration data includes information about the protocol, actors, agents, 
-    publishers, and other optional settings.
+def parse_run(conf: dict, err: Callable[[str], NoReturn]) -> dict[str, Any] | NoReturn:
+    """Parse a decoder configuration.
 
     Args:
-        file: The file object containing the configuration data.
+        conf: The configuration dictionary for the decoder, which must include a `'name'` key.
+        refs: A dictionary to store references to created decoders, indexed by their IDs.
         err: A callable that handles error messages, typically by raising an exception.
 
     Returns:
-        dict[str, Any] | NoReturn: A dictionary containing the parsed configuration data. If an
-            error occurs during parsing, the function calls the error handler function with an
-            appropriate error message.
+        Decoder | NoReturn: The new `Decoder` instance. If an error occurs during parsing 
+            or decoder creation, the function calls the error handler.
     """
 
-    try:
-        configs = yaml.safe_load(file)
-    except yaml.YAMLError as e:
-        err(str(e))
+    from fuzzydoo.protocol import Protocol, ProtocolError
+    from fuzzydoo.transformer import Encoder, Decoder
+    from fuzzydoo.agent import Agent
+    from fuzzydoo.publisher import Publisher
 
-    check_attr(configs, 'configs', dict, err)
-    run = configs['configs']
     res = {}
 
-    check_attr(run, 'protocol_name', str, err)
+    check_attr(conf, 'protocol_name', str, err)
     try:
-        res['protocol'] = Protocol.from_name(run['protocol_name'])
+        res['protocol'] = Protocol.from_name(conf['protocol_name'])
     except ProtocolError as e:
         try:
-            res['protocol'] = Protocol.from_name(run['protocol_name'].upper())
+            res['protocol'] = Protocol.from_name(conf['protocol_name'].upper())
         except ProtocolError:
             try:
-                res['protocol'] = Protocol.from_name(run['protocol_name'].lower())
+                res['protocol'] = Protocol.from_name(conf['protocol_name'].lower())
             except ProtocolError:
                 err(str(e))
 
-    check_attr(run, 'actor', str, err)
+    check_attr(conf, 'actor', str, err)
     for actor in res['protocol'].actors:
-        if run['actor'].lower() == actor.lower():
+        if conf['actor'].lower() == actor.lower():
             res['actor'] = actor
             break
     else:
-        err(f"invalid actor '{run['actor']}'")
+        err(f"invalid actor '{conf['actor']}'")
 
     refs: dict[int, Any] = {}
     to_resolve_later: list[list[list, int, dict, list, Callable]] = []
     agents: list[tuple[Agent, dict]] = []
-    if 'agents' in run:
-        check_attr(run, 'agents', list, err)
-        for i, agent in enumerate(run['agents']):
+    if 'agents' in conf:
+        check_attr(conf, 'agents', list, err)
+        for i, agent in enumerate(conf['agents']):
             err_prefix = f"agent {i + 1}: "
             custom_err = lambda msg: err(err_prefix + msg)
             agents.append(parse_agent(agent, refs, custom_err))
     res['agents'] = agents
 
     publishers: list[tuple[str, Publisher]] = []
-    check_attr(run, 'publishers', list, err)
-    for i, pub in enumerate(run['publishers']):
+    check_attr(conf, 'publishers', list, err)
+    for i, pub in enumerate(conf['publishers']):
         err_prefix = f"publisher {i + 1}: "
         custom_err = lambda msg: err(err_prefix + msg)
         args = [pub, refs, custom_err]
@@ -500,9 +500,9 @@ def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, A
             publishers.extend(parse_publisher(*args))
 
     encoders: list[Encoder] = []
-    if 'encoders' in run:
-        check_attr(run, 'encoders', list, err)
-        for i, enc in enumerate(run['encoders']):
+    if 'encoders' in conf:
+        check_attr(conf, 'encoders', list, err)
+        for i, enc in enumerate(conf['encoders']):
             err_prefix = f"encoders {i + 1}: "
             custom_err = lambda msg: err(err_prefix + msg)
             args = [enc, refs, custom_err]
@@ -514,9 +514,9 @@ def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, A
     res['encoders'] = encoders
 
     decoders: list[Decoder] = []
-    if 'decoders' in run:
-        check_attr(run, 'decoders', list, err)
-        for i, dec in enumerate(run['decoders']):
+    if 'decoders' in conf:
+        check_attr(conf, 'decoders', list, err)
+        for i, dec in enumerate(conf['decoders']):
             err_prefix = f"decoders {i + 1}: "
             custom_err = lambda msg: err(err_prefix + msg)
             args = [dec, refs, custom_err]
@@ -530,8 +530,8 @@ def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, A
     resolve_references(to_resolve_later)
 
     actors: dict[str, Publisher] = {}
-    check_attr(run, 'actors', list, err)
-    for i, actor in enumerate(run['actors']):
+    check_attr(conf, 'actors', list, err)
+    for i, actor in enumerate(conf['actors']):
         err_prefix = f"actor {i + 1}: "
         custom_err = lambda msg: err(err_prefix + msg)
         check_attr(actor, 'from', str, custom_err)
@@ -549,28 +549,80 @@ def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, A
                 actors[actor_from] = p
     res['actors'] = actors
 
-    set_optional_config(src=run, dst=res, src_name='seed', dst_name='main_seed',
+    set_optional_config(src=conf, dst=res, src_name='seed', dst_name='main_seed',
                         src_type=int, default=lambda: generate_main_seed(err), err=err)
 
-    set_optional_config(src=run, dst=res, src_name='output_dir', dst_name='findings_dir_path',
+    set_optional_config(src=conf, dst=res, src_name='output_dir', dst_name='findings_dir_path',
                         src_type=str, default=DEFAULT_OUTPUT_DIR, err=err)
     res['findings_dir_path'] = Path(res['findings_dir_path'])
 
-    set_optional_config(src=run, dst=res, src_name='max_attempts',
+    set_optional_config(src=conf, dst=res, src_name='max_attempts',
                         dst_name='max_attempts_of_test_redo',
                         src_type=int, default=DEFAULT_MAX_ATTEMPTS, err=err)
 
-    set_optional_config(src=run, dst=res, src_name='tests_per_epoch',
+    set_optional_config(src=conf, dst=res, src_name='tests_per_epoch',
                         dst_name='max_test_cases_per_epoch',
                         src_type=int, default=DEFAULT_TESTS_PER_EPOCH, err=err)
 
-    set_optional_config(src=run, dst=res, src_name='stop_on_find',
+    set_optional_config(src=conf, dst=res, src_name='stop_on_find',
                         dst_name='stop_on_find',
                         src_type=bool, default=DEFAULT_STOP_ON_FIND, err=err)
 
-    set_optional_config(src=run, dst=res, src_name='max_wait_time',
+    set_optional_config(src=conf, dst=res, src_name='max_wait_time',
                         dst_name='wait_time_before_test_end',
                         src_type=int, default=DEFAULT_MAX_WAIT_TIME, err=err)
+
+    return res
+
+
+def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, list[dict[str, Any] | Any]] | NoReturn:
+    """Parse a configuration file.
+
+    This function reads the configuration data from the provided file object and parses it. It then 
+    validates and populates a dictionary with the parsed configuration data, ready to be used by an 
+    `Engine` instance. If any errors occur during parsing or validation, the function calls the 
+    provided error handler function with an appropriate error message.
+
+    The parsed configuration data includes information about the protocol, actors, agents, 
+    publishers, and other optional settings.
+
+    Args:
+        file: The file object containing the configuration data.
+        err: A callable that handles error messages, typically by raising an exception.
+
+    Returns:
+        dict[str, list[dict[str, Any] | Any]] | NoReturn: A dictionary containing the parsed 
+            configuration data in the following format:
+                - `'agents'`: A list of all the agents involved in all the runs.
+                - `'runs'`: The parsed configuration data for each run.
+          If an error occurs during parsing, the function calls the error handler function with an 
+          appropriate error message.
+    """
+
+    from fuzzydoo.agent import Agent
+
+    try:
+        configs = yaml.safe_load(file)
+    except yaml.YAMLError as e:
+        err(str(e))
+
+    check_attr(configs, 'configs', dict, err)
+    res: dict[str, list[Agent | dict[Any]]] = {
+        'agents': [],
+        'runs': []
+    }
+
+    check_attr(configs['configs'], 'runs', list, err)
+    for i, run in enumerate(configs['configs']['runs']):
+        err_prefix = f"run {i + 1}: "
+        custom_err = lambda msg: err(err_prefix + msg)
+        check_attr(configs['configs']['runs'][i], '', dict, custom_err)
+        res['runs'].append(parse_run(run, custom_err))
+
+    for run in res['runs']:
+        for agent, _ in cast(list[tuple[Agent, Any]], run['agents']):
+            if next((a for a in res['agents'] if a.name == agent.name), None) is None:
+                res['agents'].append(agent)
 
     return res
 
@@ -621,31 +673,39 @@ def fuzz(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None:
     4. Creates an Engine instance with the extracted arguments and runs it.
     """
 
+    from fuzzydoo.agent import Agent, AgentError
+    from fuzzydoo.engine import Engine
+
     if args.log_level is not None:
         configure_logging(args.log_level)
 
     err = lambda msg: error(parser, sub, msg)
-    engine_args = parse_configs(args.config, lambda msg: err('conf: ' + msg))
+    run_data = parse_configs(args.config, lambda msg: err('conf: ' + msg))
     logging.info("Config file parsed successfully")
-    logging.info("Main seed: %s", hex(engine_args['main_seed']))
 
-    agents = engine_args.get('agents', [])
-    for i, agent_record in enumerate(agents):
-        agent, options = cast(tuple[Agent, dict], agent_record)
-        logging.debug('Setting options for agent %s', agent.name)
-        try:
-            agent.set_options(**options)
-        except AgentError as e:
-            logging.critical("%s", e)
-            sys.exit(1)
-        engine_args['agents'][i] = agent
+    for n, run in enumerate(run_data['runs']):
+        logging.info("Run #%s started", n + 1)
+        agents: list[tuple[Agent, dict]] = run.get('agents', [])
+        for i, agent_record in enumerate(agents):
+            agent, options = agent_record
+            logging.debug('Setting options for agent %s', agent.name)
+            try:
+                agent.set_options(**options)
+            except AgentError as e:
+                logging.critical("%s", e)
+                sys.exit(1)
+            run['agents'][i] = agent
 
-    engine = Engine(**engine_args)
-    engine.run()
+        engine = Engine(**run)
+        engine.run()
+        logging.info("Run #%s terminated", n + 1)
+
+    for agent in run_data['agents']:
+        agent.on_shutdown()
 
 
 def replay(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None:
-    """Replay an epoch/test case.
+    """Replay a run/epoch/test case.
 
     Parameters:
         parser: The parser for the command-line arguments.
@@ -659,30 +719,43 @@ def replay(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None
     4. Creates an Engine instance with the extracted arguments and runs it.
     """
 
+    from fuzzydoo.agent import Agent, AgentError
+    from fuzzydoo.engine import Engine
+
     err = lambda msg: error(parser, sub, msg)
-    if (args.epoch and args.test_case) or not (args.epoch or args.test_case):
-        err('replay either an epoch or a test case')
+    if args.test_case and not args.epoch:
+        err('you must specify the epoch to which the test case belongs to')
 
     if args.log_level is not None:
         configure_logging(args.log_level)
 
-    engine_args = parse_configs(args.config, lambda msg: err('conf: ' + msg))
-    logging.info("Config file parsed successfully")
-    logging.info("Main seed: %s", hex(engine_args['main_seed']))
+    run_data = parse_configs(args.config, lambda msg: err('conf: ' + msg))
+    if args.run <= 0 or args.run > len(run_data['runs']):
+        err('invalid run specified')
 
-    agents = engine_args.get('agents', [])
+    logging.info("Config file parsed successfully")
+
+    n = args.run - 1
+    test_case = args.test_case - 1 if args.test_case is not None else None
+    run: dict[str, Any] = run_data['runs'][n]
+    logging.info("Run #%s started", args.run)
+    agents: list[tuple[Agent, dict]] = run.get('agents', [])
     for i, agent_record in enumerate(agents):
-        agent, options = cast(tuple[Agent, dict], agent_record)
+        agent, options = agent_record
         logging.debug('Setting options for agent %s', agent.name)
         try:
             agent.set_options(**options)
         except AgentError as e:
             logging.critical("%s", e)
             sys.exit(1)
-        engine_args['agents'][i] = agent
+        run['agents'][i] = agent
 
-    engine = Engine(**engine_args)
-    engine.replay(args.epoch - 1, args.seed, args.test_case - 1)
+    engine = Engine(**run)
+    engine.replay(args.epoch - 1, args.seed, test_case)
+    logging.info("Run #%s terminated", args.run)
+
+    for agent, _ in cast(list[tuple[Agent, Any]], run.get('agents', [])):
+        agent.on_shutdown()
 
 
 def add_common_options(parser: ArgumentParser, with_logs: bool = True):
@@ -778,18 +851,20 @@ def main():
     parser_replay = subparsers.add_parser(
         name='replay',
         help='Re-perform tests',
-        description='Re-perform an epoch or a single test case.',
+        description='Re-perform a run/epoch/test case.',
         add_help=False,
         epilog=REPLAY_EXAMPLES,
-        usage=f"{PROGRAM_NAME} replay CONFIG_FILE SEED EPOCH [OPTIONS]",
+        usage=f"{PROGRAM_NAME} replay CONFIG_FILE SEED RUN [OPTIONS]",
         formatter_class=CustomCmdHelpFormatter
     )
     # pylint: disable=protected-access
     parser_replay._optionals.title = parser_replay._optionals.title.capitalize()
     parser_replay.add_argument('config', type=FileType('r', encoding='utf8'), metavar='CONFIG_FILE')
     parser_replay.add_argument('seed', type=lambda n: int(n, 0), metavar='SEED')
-    parser_replay.add_argument('epoch', type=int, metavar='EPOCH')
+    parser_replay.add_argument('run', type=int, metavar='RUN')
     add_common_options(parser_replay)
+    parser_replay.add_argument('-e', '--epoch', type=int,
+                               help='The number of the epoch inside the specified run to replay')
     parser_replay.add_argument('-tc', '--test-case', type=int,
                                help='The number of the test case inside the specified epoch to replay')
     parser_replay.set_defaults(func=lambda args: replay(parser, parser_replay, args))

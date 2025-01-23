@@ -1,6 +1,6 @@
 from contextlib import contextmanager
-from typing import IO, Any
-from collections.abc import Generator
+from typing import IO, Any, Iterable, TypeVar
+from collections.abc import Callable, Generator
 
 
 @contextmanager
@@ -32,3 +32,15 @@ def opened_w_error(*args, **kwargs) -> Generator[tuple[IO, None] | tuple[None, O
             yield f, None
         finally:
             f.close()
+
+
+T = TypeVar('T')
+
+
+def first_true(
+        iterable: Iterable[T],
+        default: Any = False,
+        pred: Callable[[T], bool] = None) -> T | Any:
+    "Returns the first true value or the *default* if there is no true value."
+
+    return next(filter(pred, iterable), default)

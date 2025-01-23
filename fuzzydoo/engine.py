@@ -7,14 +7,12 @@ import sys
 import pathlib
 import itertools
 from random import Random
-from typing import Any
 
 from .protocol import Protocol, ProtocolPath, Message, MessageParsingError
 from .publisher import Publisher, PublisherOperationError
 from .agent import AgentMultiplexer, Agent, AgentError, ExecutionContext
 from .transformer import Encoder, Decoder, EncodingError, DecodingError
 from .mutator import Mutation, Mutator, MutatorCompleted, MutatorNotApplicable
-from .utils.graph import Path
 from .utils.errs import FuzzyDooError
 from .utils.other import opened_w_error
 
@@ -243,6 +241,9 @@ class Engine:
         """
 
         self._logger.info("Starting run setup")
+
+        self._logger.info("Main seed: %s", hex(self.main_seed))
+
         try:
             self._setup_generic_run()
         except SetupFailedError as e:
@@ -261,8 +262,6 @@ class Engine:
 
         result = self._fuzz_protocol(paths)
 
-        self._agent.on_shutdown()
-
         self.end_time = time.time()
         return result
 
@@ -280,6 +279,9 @@ class Engine:
         """
 
         self._logger.info("Starting run setup")
+
+        self._logger.info("Main seed: %s", hex(self.main_seed))
+
         try:
             self._setup_generic_run()
         except SetupFailedError as e:
@@ -307,8 +309,6 @@ class Engine:
             self.protocol.iterate_as(self.actor, allowed_paths=paths), n_epoch, None))
         result = self._run_epoch(path, seed, n_test_case)
         self._current_epoch = None
-
-        self._agent.on_shutdown()
 
         self.end_time = time.time()
         return result

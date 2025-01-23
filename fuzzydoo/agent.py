@@ -36,42 +36,46 @@ class Agent(PublisherSource):
     ```python
     agent = SomeAgent()
 
-    options = # some options
-    agent.set_options(**options)
+    while some_condition:
+        options = # some options
+        agent.set_options(**options)
 
-    # Do some other configurations...
+        # Do some other configurations...
 
-    protocol_name = "Some protocol"
-    paths = agent.get_supported_paths(protocol_name)
+        protocol_name = "Some protocol"
+        paths = agent.get_supported_paths(protocol_name)
 
-    # Start the fuzzing run
-    for epoch in epochs:
-        # Do some stuffs...
+        # Start the fuzzing run
+        for epoch in epochs:
+            # Do some stuffs...
 
-        ctx = # some context
-        if agent.skip_epoch(ctx):
-            continue
+            ctx = # some context
+            if agent.skip_epoch(ctx):
+                continue
 
-        # Do some other stuffs...
+            # Do some other stuffs...
 
-        agent.on_test_start(ctx)
-        # Test case started
-        with test_case:
-            # Execute some actions...
+            agent.on_test_start(ctx)
+            # Test case started
+            with test_case:
+                # Execute some actions...
 
-            if agent.redo_test():
-                # exit from test case
+                if agent.redo_test():
+                    # exit from test case
 
-            if agent.fault_detected():
-                agent.on_fault()
+                if agent.fault_detected():
+                    agent.on_fault()
 
-                # ....
+                    # ....
 
-                data = agent.get_data()
+                    data = agent.get_data()
 
-        # Test case stopped
+            # Test case stopped
 
-        agent.on_test_end()
+            agent.on_test_end()
+
+        # Reset the options
+        agent.reset()
 
     # Fuzzing run ended
     agent.on_shutdown()
@@ -138,6 +142,16 @@ class Agent(PublisherSource):
 
         Args:
             kwargs: Additional keyword arguments.
+
+        Raises:
+            AgentError: If some error occurred at the agent side. In this case the method 
+                `stop_execution` is called.
+        """
+
+    def reset(self):
+        """Reset the agent.
+
+        This method can be called after `on_test_end` and/or before `set_options`.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 

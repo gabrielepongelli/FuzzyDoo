@@ -1415,67 +1415,102 @@ class NetworkProxyAgent(GrpcClientAgent):
 class NetworkProxyServerAgent(GrpcServerAgent):
     """Server agent that controls a network proxy."""
 
+    DEFAULT_OPTIONS: dict[str, str | int | None] = {
+        'listen_ip': None,
+        'listen_port': None,
+        'forward_from_ip': None,
+        'forward_to_ip': None,
+        'forward_to_port': None,
+        'op': None,
+        'op_type': None,
+        'key': None,
+        'mcc': None,
+        'mnc': None,
+        'supi': None
+    }
+
+    NGAP_OPTIONS = [
+        'listen_ip', 'listen_port', 'forward_from_ip', 'forward_to_ip', 'forward_to_port']
+
+    NAS_MM_OPTIONS = [
+        'listen_ip', 'listen_port', 'forward_from_ip', 'forward_to_ip', 'forward_to_port']
+
+    NAS_SM_OPTIONS = [
+        'listen_ip', 'listen_port', 'forward_from_ip', 'forward_to_ip', 'forward_to_port',
+        'op', 'op_type', 'key', 'mcc', 'mnc', 'supi']
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
         self._proxy: SCTPProxy | None = None
-        self._proxy_configs: dict[str, str | int] = {}
         self._publisher_map: dict[int, Publisher] = {}
+
+        self.options = dict(self.DEFAULT_OPTIONS)
+        self.set_options(**kwargs)
 
     @override
     def set_options(self, **kwargs):
         if 'listen' in kwargs:
             listen_configs = kwargs['listen']
             if 'ip' in listen_configs:
-                self._proxy_configs['listen_ip'] = listen_configs['ip']
+                self.options['listen_ip'] = listen_configs['ip']
                 logging.info('Set listen[ip] = %s', listen_configs['ip'])
             if 'port' in listen_configs:
-                self._proxy_configs['listen_port'] = listen_configs['port']
+                self.options['listen_port'] = listen_configs['port']
                 logging.info('Set listen[port] = %s', listen_configs['port'])
 
         if 'forward' in kwargs:
             forward_configs = kwargs['forward']
             if 'from_ip' in forward_configs:
-                self._proxy_configs['forward_from_ip'] = forward_configs['from_ip']
+                self.options['forward_from_ip'] = forward_configs['from_ip']
                 logging.info('Set forward[from_ip] = %s', forward_configs['from_ip'])
             if 'to_ip' in forward_configs:
-                self._proxy_configs['forward_to_ip'] = forward_configs['to_ip']
+                self.options['forward_to_ip'] = forward_configs['to_ip']
                 logging.info('Set forward[to_ip] = %s', forward_configs['to_ip'])
             if 'to_port' in forward_configs:
-                self._proxy_configs['forward_to_port'] = forward_configs['to_port']
+                self.options['forward_to_port'] = forward_configs['to_port']
                 logging.info('Set forward[to_port] = %s', forward_configs['to_port'])
 
         if 'sim' in kwargs:
             sim_configs = kwargs['sim']
             if 'op' in sim_configs:
-                self._proxy_configs['op'] = sim_configs['op']
+                self.options['op'] = sim_configs['op']
                 logging.info('Set sim[op] = %s', sim_configs['op'])
             if 'op_type' in sim_configs:
-                self._proxy_configs['op_type'] = sim_configs['op_type']
+                self.options['op_type'] = sim_configs['op_type']
                 logging.info('Set sim[op_type] = %s', sim_configs['op_type'])
             if 'key' in sim_configs:
-                self._proxy_configs['key'] = sim_configs['key']
+                self.options['key'] = sim_configs['key']
                 logging.info('Set sim[key] = %s', sim_configs['key'])
             if 'mcc' in sim_configs:
-                self._proxy_configs['mcc'] = sim_configs['mcc']
+                self.options['mcc'] = sim_configs['mcc']
                 logging.info('Set sim[mcc] = %s', sim_configs['mcc'])
             if 'mnc' in sim_configs:
-                self._proxy_configs['mnc'] = sim_configs['mnc']
+                self.options['mnc'] = sim_configs['mnc']
                 logging.info('Set sim[mnc] = %s', sim_configs['mnc'])
             if 'supi' in sim_configs:
-                self._proxy_configs['supi'] = sim_configs['supi']
+                self.options['supi'] = sim_configs['supi']
                 logging.info('Set sim[supi] = %s', sim_configs['supi'])
+
+    @override
+    def reset(self):
+        self.options = dict(self.DEFAULT_OPTIONS)
+        self._proxy = None
+        self._publisher_map = {}
 
     @override
     def on_test_start(self, ctx: ExecutionContext):
         try:
             match ctx.protocol_name:
                 case 'NGAP':
-                    self._proxy = SCTPProxy(**self._proxy_configs)
+                    self._proxy = SCTPProxy(
+                        **{k: v for k, v in self.options.items() if k in self.NGAP_OPTIONS})
                 case 'NAS-MM':
-                    self._proxy = NGAPProxy(**self._proxy_configs)
+                    self._proxy = NGAPProxy(
+                        **{k: v for k, v in self.options.items() if k in self.NAS_MM_OPTIONS})
                 case 'NAS-SM':
-                    self._proxy = NASMMProxy(**self._proxy_configs)
+                    self._proxy = NASMMProxy(
+                        **{k: v for k, v in self.options.items() if k in self.NAS_SM_OPTIONS})
                 case _:
                     raise AgentError(f"Unsupported protocol: {ctx.protocol_name}")
         except TypeError as e:

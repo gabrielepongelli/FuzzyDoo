@@ -5,6 +5,7 @@ service AgentService {
   rpc getSupportedPaths(RequestMessage) returns (ResponseMessage) {}
   rpc onTestStart(RequestMessage) returns (ResponseMessage) {}
   rpc onTestEnd(RequestMessage) returns (ResponseMessage) {}
+  rpc resetAgent(RequestMessage) returns (ResponseMessage) {}
   rpc getData(RequestMessage) returns (ResponseMessage) {}
   rpc skipEpoch(RequestMessage) returns (ResponseMessage) {}
   rpc redoTest(RequestMessage) returns (ResponseMessage) {}

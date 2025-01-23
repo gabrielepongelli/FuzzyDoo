@@ -20,7 +20,7 @@ class ContainerMonitorAgent(GrpcClientAgent):
 
         Args:
             kwargs: Additional keyword arguments. It must contain the following keys:
-                'container_name': The name of the container to monitor.
+                `'container_name'`: The name of the container to monitor.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -83,27 +83,36 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
     It does this using `docker inspect`.
     """
 
+    DEFAULT_OPTIONS: dict[str, str | None] = {
+        'container_name': None
+    }
+
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)
 
-        self._container_name: str | None = kwargs.get('container_name', None)
+        self.options = dict(self.DEFAULT_OPTIONS)
+        self.set_options(**kwargs)
 
     @override
     def set_options(self, **kwargs):
         if 'container_name' in kwargs:
-            self._container_name = kwargs['container_name']
-            logging.info('Set %s = %s', 'container_name', self._container_name)
+            self.options['container_name'] = kwargs['container_name']
+            logging.info('Set %s = %s', 'container_name', self.options['container_name'])
+
+    @override
+    def reset(self):
+        self.options = dict(self.DEFAULT_OPTIONS)
 
     @override
     def fault_detected(self) -> bool:
-        if self._container_name is None:
+        if self.options['container_name'] is None:
             logging.error("No container name specified")
             raise AgentError("No container name specified")
 
         try:
             result = subprocess.run(
                 ["docker", "inspect", "--format",
-                    "{{.State.Running}}", self._container_name],
+                    "{{.State.Running}}", self.options['container_name']],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
             )
         except subprocess.CalledProcessError as e:
@@ -113,11 +122,11 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
 
         is_running = result.stdout.strip()
         if is_running == "true":
-            logging.info('Container %s running', self._container_name)
+            logging.info('Container %s running', self.options['container_name'])
             return False  # fault not detected
 
         if is_running == "false":
-            logging.info('Container %s not running', self._container_name)
+            logging.info('Container %s not running', self.options['container_name'])
             return True  # fault detected
 
         logging.error("Unexpected output: %s", is_running)

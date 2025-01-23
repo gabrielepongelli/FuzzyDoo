@@ -24,7 +24,7 @@ class ComposeRestartAgent(GrpcClientAgent):
         Args:
             kwargs: Additional keyword arguments. It must contain the following keys:
                 - `'compose_yaml_path'`: The path to the `docker-compose.yaml` file.
-                - `'restart_anyway`' (optional): Whether the containers in the compose setting 
+                - `'restart_anyway'` (optional): Whether the containers in the compose setting 
                     should be restarted in `on_test_start` even if they are already running. 
                     Defaults to `False`.
 
@@ -85,35 +85,44 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         running.
     """
 
+    DEFAULT_OPTIONS: dict[str, Path | bool | None] = {
+        'compose_yaml_path': None,
+        'restart_anyway': False
+    }
+
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)
 
-        self._compose_yaml_path: Path | None = kwargs.get('compose_yaml_path', None)
-        self._restart_anyway: bool = kwargs.get('restart_anyway', False)
+        self.options = dict(self.DEFAULT_OPTIONS)
+        self.set_options(**kwargs)
 
         self._fault_detected: bool = False
 
     def set_options(self, **kwargs):
         if 'compose_yaml_path' in kwargs:
-            self._compose_yaml_path = Path(kwargs['compose_yaml_path'])
-            logging.info('Set %s = %s', 'compose_yaml_path',
-                         self._compose_yaml_path)
+            self.options['compose_yaml_path'] = Path(kwargs['compose_yaml_path'])
+            logging.info('Set %s = %s', 'compose_yaml_path', self.options['compose_yaml_path'])
 
         if 'restart_anyway' in kwargs:
-            self._restart_anyway = kwargs['restart_anyway']
-            logging.info('Set %s = %s', 'restart_anyway', self._restart_anyway)
+            self.options['restart_anyway'] = kwargs['restart_anyway']
+            logging.info('Set %s = %s', 'restart_anyway', self.options['restart_anyway'])
+
+    @override
+    def reset(self):
+        self.options = dict(self.DEFAULT_OPTIONS)
+        self._fault_detected = False
 
     def _is_running(self) -> bool:
         """Check whether the docker compose setup is already running."""
 
-        if self._compose_yaml_path is None:
+        if self.options['compose_yaml_path'] is None:
             msg = "No docker-compose.yaml path specified"
             logging.error(msg)
             raise AgentError(msg)
 
         try:
-            result = subprocess.run(
-                ["docker", "compose", "-f", self._compose_yaml_path, "ps", "-q"],
+            result: subprocess.CompletedProcess[str] = subprocess.run(
+                ["docker", "compose", "-f", self.options['compose_yaml_path'], "ps", "-q"],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
             )
         except subprocess.CalledProcessError as e:
@@ -128,13 +137,13 @@ class ComposeRestartServerAgent(GrpcServerAgent):
 
         logging.info("Starting docker compose setup...")
 
-        if self._compose_yaml_path is None:
+        if self.options['compose_yaml_path'] is None:
             logging.error("No docker-compose.yaml path specified")
             raise AgentError("No docker-compose.yaml path specified")
 
         try:
             subprocess.run(
-                ["docker", "compose", "-f", self._compose_yaml_path, "up", "-d"],
+                ["docker", "compose", "-f", self.options['compose_yaml_path'], "up", "-d"],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
             )
         except subprocess.CalledProcessError as e:
@@ -149,13 +158,13 @@ class ComposeRestartServerAgent(GrpcServerAgent):
 
         logging.info("Stopping docker compose setup...")
 
-        if self._compose_yaml_path is None:
+        if self.options['compose_yaml_path'] is None:
             logging.error("No docker-compose.yaml path specified")
             raise AgentError("No docker-compose.yaml path specified")
 
         try:
             subprocess.run(
-                ["docker", "compose", "-f", self._compose_yaml_path, "down"],
+                ["docker", "compose", "-f", self.options['compose_yaml_path'], "down"],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
             )
         except subprocess.CalledProcessError as e1:
@@ -187,7 +196,7 @@ class ComposeRestartServerAgent(GrpcServerAgent):
                 time.sleep(1)
 
                 subprocess.run(
-                    ["docker", "compose", "-f", self._compose_yaml_path, "down"],
+                    ["docker", "compose", "-f", self.options['compose_yaml_path'], "down"],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
                 )
             except subprocess.CalledProcessError as e2:
@@ -201,13 +210,13 @@ class ComposeRestartServerAgent(GrpcServerAgent):
     def on_test_start(self, ctx: ExecutionContext):
         if not self._is_running():
             self._start_compose()
-        elif self._restart_anyway:
+        elif self.options['restart_anyway']:
             self._stop_compose()
             self._start_compose()
 
     @override
     def on_test_end(self):
-        if self._restart_anyway or self._fault_detected:
+        if self.options['restart_anyway'] or self._fault_detected:
             self._fault_detected = False
             self._stop_compose()
 

@@ -128,40 +128,50 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
     Note: This agent needs root privileges in order to work properly.
     """
 
+    DEFAULT_OPTIONS: dict[str, str | list[str] | None] = {
+        'iface': None,
+        'filter': None
+    }
+
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)
 
-        self._iface: str | list[str] | None = kwargs.get('iface', None)
-        self._filter: str | None = kwargs.get('filter', None)
+        self.options = dict(self.DEFAULT_OPTIONS)
+        self.set_options(**kwargs)
+
         self._sniffer: SnifferThread | None = None
 
     @override
     def set_options(self, **kwargs):
         if 'iface' in kwargs:
-            self._iface = kwargs['iface']
-            logging.info('Set %s = %s', 'iface',
-                         self._iface)
+            self.options['iface'] = kwargs['iface']
+            logging.info('Set %s = %s', 'iface', self.options['iface'])
 
         if 'filter' in kwargs:
-            self._filter = kwargs['filter']
-            logging.info('Set %s = %s', 'filter', self._filter)
+            self.options['filter'] = kwargs['filter']
+            logging.info('Set %s = %s', 'filter', self.options['filter'])
+
+    @override
+    def reset(self):
+        self.options = dict(self.DEFAULT_OPTIONS)
+        self._sniffer = None
 
     @override
     def on_test_start(self, ctx: ExecutionContext):
-        if self._iface is None:
+        if self.options['iface'] is None:
             err_msg = "Interface not specified"
             logging.error(err_msg)
             raise AgentError(err_msg)
 
         try:
-            socket.if_nametoindex(self._iface)
+            socket.if_nametoindex(self.options['iface'])
         except OSError as e:
-            err_msg = f"Interface '{self._iface}' not found"
+            err_msg = f"Interface '{self.options['iface']}' not found"
             logging.error(err_msg)
             raise AgentError(err_msg) from e
 
         try:
-            p: subprocess.Popen = scapy.tcpdump(flt=self._filter, getproc=True)
+            p: subprocess.Popen = scapy.tcpdump(flt=self.options['filter'], getproc=True)
             p.kill()
 
             # essential, otherwise they remains open
@@ -172,11 +182,11 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
             if p.stderr:
                 p.stderr.close()
         except scapy.Scapy_Exception as e:
-            err_msg = f"Invalid filter '{self._filter}'"
+            err_msg = f"Invalid filter '{self.options['filter']}'"
             logging.error(err_msg)
             raise AgentError(err_msg) from e
 
-        self._sniffer = SnifferThread(self._iface, self._filter)
+        self._sniffer = SnifferThread(self.options['iface'], self.options['filter'])
         self._sniffer.start()
 
     def _stop_thread(self):
@@ -210,7 +220,7 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
         while not self._sniffer.packets.empty():
             packets.append(self._sniffer.packets.get_nowait())
 
-        name = f"{self._iface}.pcap"
+        name = f"{self.options['iface']}.pcap"
         pcap_bytes_io = io.BytesIO()
 
         # this is needed because wrpcap calls close() at the end

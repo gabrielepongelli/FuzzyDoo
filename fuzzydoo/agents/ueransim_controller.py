@@ -9,13 +9,13 @@ from pathlib import Path
 from threading import Event
 from queue import Queue, ShutDown, Full
 from typing import override, IO, ClassVar
-from more_itertools import first_true
 
 import yaml
 
 from ..agent import Agent, AgentError, ExecutionContext
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread, with_thread_safe_get_set
 from ..utils.register import register
+from ..utils.other import first_true
 from ..protocol import ProtocolPath
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
@@ -661,19 +661,22 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
 
     _SUPPORTED_PROTOCOLS: list[str] = ['NGAP', 'NAS-MM', 'NAS-SM']
 
+    DEFAULT_OPTIONS: dict[str, Path] = {
+        'gnb_exe_path': Path('./nr-gnb'),
+        'gnb_config_path': Path('./gnb.yaml'),
+        'ue_exe_path': Path('./nr-ue'),
+        'ue_config_path': Path('./ue.yaml'),
+        'cli_exe_path': Path('./nr-cli'),
+    }
+
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)
 
-        self.gnb: UERANSIMToolDescriptor = UERANSIMToolDescriptor(
-            'gNB', Path(kwargs.get('gnb_exe_path', './nr-gnb')),
-            Path(kwargs.get('gnb_config_path', './gnb.yaml')), 1)
+        self.options = dict(self.DEFAULT_OPTIONS)
+        self.set_options(**kwargs)
 
-        self.ue: UERANSIMToolDescriptor = UERANSIMToolDescriptor(
-            'UE', Path(kwargs.get('ue_exe_path', './nr-ue')),
-            Path(kwargs.get('ue_config_path', './ue.yaml')), 1)
-
-        self.cli_path: Path = Path(kwargs.get('cli_path', './nr-cli'))
-
+        self.gnb: UERANSIMToolDescriptor | None = None
+        self.ue: UERANSIMToolDescriptor | None = None
         self.orchestrator: OrchestratorThread | None = None
 
     def _is_subpath(self, path: list[str], subpath: ProtocolPath | list[str]) -> bool:
@@ -731,28 +734,32 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
         if 'gnb' in kwargs:
             gnb_configs = kwargs['gnb']
             if 'exe_path' in gnb_configs:
-                self.gnb.execution_path = Path(gnb_configs['exe_path'])
-                logging.info('Set gnb[%s] = %s',
-                             'execution_path', gnb_configs['exe_path'])
+                self.options['gnb_exe_path'] = Path(gnb_configs['exe_path'])
+                logging.info('Set gnb[%s] = %s', 'execution_path', self.options['gnb_exe_path'])
             if 'config_path' in gnb_configs:
-                self.gnb.configuration_path = Path(gnb_configs['config_path'])
+                self.options['gnb_config_path'] = Path(gnb_configs['config_path'])
                 logging.info('Set gnb[%s] = %s',
-                             'configuration_path', gnb_configs['config_path'])
+                             'configuration_path', self.options['gnb_config_path'])
 
         if 'ue' in kwargs:
             ue_configs = kwargs['ue']
             if 'exe_path' in ue_configs:
-                self.ue.execution_path = Path(ue_configs['exe_path'])
-                logging.info('Set ue[%s] = %s',
-                             'execution_path', ue_configs['exe_path'])
+                self.options['ue_exe_path'] = Path(ue_configs['exe_path'])
+                logging.info('Set ue[%s] = %s', 'execution_path', self.options['ue_exe_path'])
             if 'config_path' in ue_configs:
-                self.ue.configuration_path = Path(ue_configs['config_path'])
-                logging.info('Set ue[%s] = %s',
-                             'configuration_path', ue_configs['config_path'])
+                self.options['ue_config_path'] = Path(ue_configs['config_path'])
+                logging.info('Set ue[%s] = %s', 'configuration_path', self.options['ue_config_path'])
 
         if 'cli_path' in kwargs:
-            self.cli_path = Path(kwargs['cli_path'])
-            logging.info('Set %s = %s', 'cli_path', self.cli_path)
+            self.options['cli_exe_path'] = Path(kwargs['cli_path'])
+            logging.info('Set %s = %s', 'cli_path', self.options['cli_exe_path'])
+
+    @override
+    def reset(self):
+        self.options = dict(self.DEFAULT_OPTIONS)
+        self.gnb = None
+        self.ue = None
+        self.orchestrator = None
 
     @override
     def get_supported_paths(self, protocol: str) -> list[list[str]]:
@@ -777,8 +784,14 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
             logging.error(msg)
             raise AgentError(msg)
 
+        self.gnb = UERANSIMToolDescriptor(
+            'gNB', self.options['gnb_exe_path'], self.options['gnb_config_path'])
+
+        self.ue = UERANSIMToolDescriptor(
+            'UE', self.options['ue_exe_path'], self.options['ue_config_path'])
+
         self.orchestrator = OrchestratorThread(
-            self.gnb, self.ue, self.cli_path, ctx.protocol_name, subpath_idx)
+            self.gnb, self.ue, self.options['cli_exe_path'], ctx.protocol_name, subpath_idx)
 
         path_len = len(ctx.path.names)
         if ctx.protocol_name == 'NGAP':

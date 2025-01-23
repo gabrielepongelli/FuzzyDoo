@@ -110,6 +110,20 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         # pylint: disable=no-member
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
 
+    def resetAgent(self, request, context):
+        logging.debug('resetAgent')
+
+        try:
+            self.reset()
+        except AgentError as e:
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error=str(e))
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
+
     def getSupportedPaths(self, request, context):
         logging.debug('getSupportedPaths')
 
