@@ -1,5 +1,8 @@
+import os
+import sys
+import shutil
 from contextlib import contextmanager
-from typing import IO, Any, Iterable, TypeVar
+from typing import IO, Any, Iterable, NoReturn, TypeVar
 from collections.abc import Callable, Generator
 
 
@@ -44,3 +47,10 @@ def first_true(
     "Returns the first true value or the *default* if there is no true value."
 
     return next(filter(pred, iterable), default)
+
+
+def run_as_root() -> NoReturn:
+    """Run the current process as root."""
+
+    sudo = shutil.which('sudo')
+    os.execv(sudo, [sudo, sys.executable] + sys.argv)

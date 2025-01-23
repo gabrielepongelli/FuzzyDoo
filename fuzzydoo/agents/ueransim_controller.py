@@ -1,3 +1,6 @@
+import os
+import argparse
+import sys
 import logging
 import shlex
 import time
@@ -15,7 +18,7 @@ import yaml
 from ..agent import Agent, AgentError, ExecutionContext
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread, with_thread_safe_get_set
 from ..utils.register import register
-from ..utils.other import first_true
+from ..utils.other import first_true, run_as_root
 from ..protocol import ProtocolPath
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
@@ -845,10 +848,6 @@ __all__ = ['UERANSIMControllerAgent']
 
 
 def main():
-    import os
-    import argparse
-    import sys
-
     parser = argparse.ArgumentParser(
         description='Agent that controls the UERANSIM tools.')
     parser.add_argument('--ip', type=str, help='IP address to listen on')
@@ -857,10 +856,7 @@ def main():
     args = parser.parse_args()
 
     if os.geteuid() != 0:
-        sys.stderr.write(
-            "You need root permissions to run this script. To solve this problem execute this script like this:\n\n")
-        sys.stderr.write("\tsudo $(which ueransim-controller)\n\n")
-        sys.exit(1)
+        run_as_root()
 
     if not args.ip or not args.port:
         sys.stderr.write("Error: No IP address and port specified\n")

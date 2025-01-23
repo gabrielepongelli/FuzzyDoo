@@ -1,3 +1,6 @@
+import argparse
+import sys
+import os
 import logging
 import subprocess
 import re
@@ -7,6 +10,7 @@ from typing import override
 
 from ..agent import Agent, AgentError, ExecutionContext
 from ..utils.register import register
+from ..utils.other import run_as_root
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 
@@ -233,10 +237,6 @@ __all__ = ['ComposeRestartAgent']
 
 
 def main():
-    import argparse
-    import sys
-    import os
-
     parser = argparse.ArgumentParser(
         description='Agent that restarts all the docker containers in a docker compose setup.')
     parser.add_argument('--ip', type=str, help='IP address to listen on')
@@ -245,10 +245,7 @@ def main():
     args = parser.parse_args()
 
     if os.geteuid() != 0:
-        sys.stderr.write(
-            "You need root permissions to run this script. To solve this problem execute this script like this:\n\n")
-        sys.stderr.write("\tsudo $(which compose-restart)\n\n")
-        sys.exit(1)
+        run_as_root()
 
     if not args.ip or not args.port:
         sys.stderr.write("Error: No IP address and port specified\n")

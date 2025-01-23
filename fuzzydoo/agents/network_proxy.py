@@ -1,5 +1,7 @@
 # pylint: disable=too-many-lines
 
+import argparse
+import sys
 import logging
 import socket
 import time
@@ -1600,9 +1602,6 @@ __all__ = ['NetworkProxyAgent']
 
 
 def main():
-    import argparse
-    import sys
-
     parser = argparse.ArgumentParser(
         description='Agent that relay packets on the machine.')
     parser.add_argument('--ip', type=str, help='IP address to listen on')

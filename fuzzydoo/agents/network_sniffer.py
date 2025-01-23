@@ -1,3 +1,6 @@
+import os
+import argparse
+import sys
 import logging
 import io
 import subprocess
@@ -10,6 +13,7 @@ import scapy.all as scapy
 from ..agent import Agent, AgentError, ExecutionContext
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread
 from ..utils.register import register
+from ..utils.other import run_as_root
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 
@@ -242,10 +246,6 @@ __all__ = ['NetworkSnifferAgent']
 
 
 def main():
-    import os
-    import argparse
-    import sys
-
     parser = argparse.ArgumentParser(
         description='Agent that sniff packets on the machine.')
     parser.add_argument('--ip', type=str, help='IP address to listen on')
@@ -254,10 +254,7 @@ def main():
     args = parser.parse_args()
 
     if os.geteuid() != 0:
-        sys.stderr.write(
-            "You need root permissions to run this script. To solve this problem execute this script like this:\n\n")
-        sys.stderr.write("\tsudo $(which network-sniffer)\n\n")
-        sys.exit(1)
+        run_as_root()
 
     if not args.ip or not args.port:
         sys.stderr.write("Error: No IP address and port specified\n")

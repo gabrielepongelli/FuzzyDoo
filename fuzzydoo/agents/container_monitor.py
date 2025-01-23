@@ -1,3 +1,5 @@
+import argparse
+import sys
 import logging
 import subprocess
 from typing import override
@@ -137,9 +139,6 @@ __all__ = ['ContainerMonitorAgent']
 
 
 def main():
-    import argparse
-    import sys
-
     parser = argparse.ArgumentParser(
         description='Agent that checks if a container is running.')
     parser.add_argument('--ip', type=str, help='IP address to listen on')
