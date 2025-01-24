@@ -22,7 +22,8 @@ class ContainerMonitorAgent(GrpcClientAgent):
 
         Args:
             kwargs: Additional keyword arguments. It must contain the following keys:
-                `'container_name'`: The name of the container to monitor.
+                `'containers'`: A list of strings representing the names of the containers to 
+                    monitor.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -37,10 +38,6 @@ class ContainerMonitorAgent(GrpcClientAgent):
     @override
     def on_test_end(self):
         return
-
-    @override
-    def get_data(self) -> list[tuple[str, bytes]]:
-        return []
 
     @override
     def skip_epoch(self, ctx: ExecutionContext) -> bool:
@@ -85,8 +82,8 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
     It does this using `docker inspect`.
     """
 
-    DEFAULT_OPTIONS: dict[str, str | None] = {
-        'container_name': None
+    DEFAULT_OPTIONS: dict[str, list[str]] = {
+        'containers': []
     }
 
     def __init__(self, **kwargs):
@@ -97,24 +94,30 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
 
     @override
     def set_options(self, **kwargs):
-        if 'container_name' in kwargs:
-            self.options['container_name'] = kwargs['container_name']
-            logging.info('Set %s = %s', 'container_name', self.options['container_name'])
+        if 'containers' in kwargs:
+            self.options['containers'] = kwargs['containers']
+            logging.info('Set %s = %s', 'containers', self.options['containers'])
 
     @override
     def reset(self):
         self.options = dict(self.DEFAULT_OPTIONS)
 
-    @override
-    def fault_detected(self) -> bool:
-        if self.options['container_name'] is None:
-            logging.error("No container name specified")
-            raise AgentError("No container name specified")
+    def _is_running(self, container: str) -> bool:
+        """Check whether the specified container is running.
+
+        Args:
+            container: The name of the container to monitor.
+
+        Returns:
+            bool: `True` if the container is running, `False` otherwise.
+
+        Raises:
+            AgentError: If an error occurred while running the `docker inspect` command.
+        """
 
         try:
             result = subprocess.run(
-                ["docker", "inspect", "--format",
-                    "{{.State.Running}}", self.options['container_name']],
+                ["docker", "inspect", "--format", "{{.State.Running}}", container],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
             )
         except subprocess.CalledProcessError as e:
@@ -125,14 +128,60 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
         is_running = result.stdout.strip()
         if is_running == "true":
             logging.info('Container %s running', self.options['container_name'])
-            return False  # fault not detected
+            return True
 
         if is_running == "false":
             logging.info('Container %s not running', self.options['container_name'])
-            return True  # fault detected
+            return False
 
         logging.error("Unexpected output: %s", is_running)
         raise AgentError("Unexpected output: " + is_running)
+
+    def _get_logs(self, container: str) -> bytes:
+        """Get the logs of the specified container.
+
+        Args:
+            container: The name of the container.
+
+        Returns:
+            bytes: The logs of the container.
+
+        Raises:
+            AgentError: If an error occurred while running the `docker logs` command.
+        """
+
+        try:
+            result = subprocess.run(
+                ["docker", "logs", container],
+                stdout=subprocess.PIPE, text=True, check=True
+            )
+        except subprocess.CalledProcessError as e:
+            err_msg = str(e.stderr).strip()
+            logging.error(err_msg)
+            raise AgentError(err_msg) from e
+
+        return result.stdout.encode()
+
+    @override
+    def fault_detected(self) -> bool:
+        if not self.options['containers']:
+            logging.error("No container name specified")
+            raise AgentError("No container name specified")
+
+        for container in self.options['containers']:
+            if not self._is_running(container):
+                return True
+
+        return False
+
+    @override
+    def get_data(self) -> list[tuple[str, bytes]]:
+        res = []
+        for container in self.options['containers']:
+            logs = self._get_logs(container)
+            record_name = container + ".log.txt"
+            res.append((record_name, logs))
+        return res
 
 
 __all__ = ['ContainerMonitorAgent']
