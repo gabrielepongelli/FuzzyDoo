@@ -8,11 +8,13 @@ import pathlib
 import itertools
 from random import Random
 
+import yaml
+
 from .protocol import Protocol, ProtocolPath, Message, MessageParsingError
 from .publisher import Publisher, PublisherOperationError
 from .agent import AgentMultiplexer, Agent, AgentError, ExecutionContext
 from .transformer import Encoder, Decoder, EncodingError, DecodingError
-from .mutator import Mutation, Mutator, MutatorCompleted, MutatorNotApplicable
+from .mutator import Fuzzable, Mutation, Mutator, MutatorCompleted, MutatorNotApplicable
 from .utils.errs import FuzzyDooError
 from .utils.other import opened_w_error
 
@@ -472,6 +474,74 @@ class Engine:
 
         return success
 
+    def _produce_case_report(self, path: ProtocolPath, mutation: tuple[Mutation, str], original_data: Fuzzable) -> bytes:
+        """Produce a report for a single test case.
+
+        This function generates a report for a single test case. The report includes:
+
+
+        Args:
+            path: Path in the protocol that has been fuzzed.
+            mutation: The mutation to be reported.
+            original_data: The original data before the mutation.
+
+        Returns:
+            A bytes object containing the report.
+        """
+
+    def _produce_case_report(self, path: ProtocolPath, mutation: tuple[Mutation, str], original_data: Fuzzable) -> bytes:
+        """Generate a detailed report for a single test case in YAML format.
+
+        This method creates a comprehensive report containing information about the current run, 
+        the specific test case, and the applied mutation.
+
+        Args:
+            path: The path in the protocol that has been fuzzed.
+            mutation: A tuple containing the mutation object and the associated fuzzable path.
+            original_data: The original data before the mutation was applied.
+
+        Returns:
+            bytes: A YAML-formatted report as a bytes object.
+
+        Note:
+            The report structure includes:
+            - Run information (seed, protocol, actor)
+            - Case information (path, epoch, seed, case number, mutated message)
+            - Mutation details (mutated element, field, original and mutated values)
+        """
+
+        if mutation[0].field_name == "":
+            mutated_filed = ""
+        elif mutation[0].field_name.startswith(original_data.name) and len(mutation[0].field_name) > len(original_data.name):
+            mutated_filed = mutation[0].field_name[len(original_data.name) + 1:]
+        else:
+            mutated_filed = mutation[0].field_name
+
+        report = {
+            "run": {
+                "seed": self.main_seed,
+                "protocol": self.protocol.name,
+                "actor": self.actor,
+            },
+
+            "case": {
+                "path": ' -> '.join(path.names),
+                "epoch": self._current_epoch + 1,
+                "epoch_seed": hex(self._epoch_seed),
+                "case": self._epoch_cases_fuzzed + 1,
+                "mutated_message": path.names[-1]
+            },
+
+            "mutation": {
+                "mutated_element": mutation[1],
+                "mutated_field": mutated_filed,
+                "original_value": original_data.get_content(mutation[0].field_name),
+                "mutated_value": mutation[0].mutated_value
+            }
+        }
+
+        return yaml.safe_dump(report)
+
     def _save_findings(self, data: list[tuple[str, bytes]]):
         """Save the findings generated during the fuzzing process.
 
@@ -486,7 +556,7 @@ class Engine:
                 2. The content of the file
         """
 
-        test_case_path = self._run_path / str(self._total_cases_fuzzed)
+        test_case_path = self._run_path / f"{self._current_epoch + 1}-{self._epoch_cases_fuzzed + 1}"
         try:
             os.mkdir(test_case_path)
         except OSError as e:
@@ -682,7 +752,8 @@ class Engine:
                         else:
                             # apply the mutation
                             self._logger.debug("Applying mutation")
-                            mutated_data = mutation[0].apply(decoded_msg.get_content(mutation[1]))
+                            data_to_mutate = decoded_msg.get_content(mutation[1])
+                            mutated_data = mutation[0].apply(data_to_mutate)
                             decoded_msg.set_content(mutation[1], mutated_data)
                             self._logger.debug("Mutated data %s", decoded_msg.raw())
 
@@ -740,7 +811,8 @@ class Engine:
                     except AgentError as e:
                         raise TestCaseExecutionError(str(e)) from e
 
-                    self._save_findings(data)
+                    case_report = self._produce_case_report(path, mutation, data_to_mutate)
+                    self._save_findings([('report.yaml', case_report)] + data)
 
                 if delta >= self.wait_time_before_test_end:
                     break
