@@ -683,24 +683,30 @@ def fuzz(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None:
     run_data = parse_configs(args.config, lambda msg: err('conf: ' + msg))
     logging.info("Config file parsed successfully")
 
-    for n, run in enumerate(run_data['runs']):
-        logging.info("Run #%s started", n + 1)
-        agents: list[tuple[Agent, dict]] = run.get('agents', [])
-        for i, agent_record in enumerate(agents):
-            agent, options = agent_record
-            logging.debug('Setting options for agent %s', agent.name)
-            try:
-                agent.set_options(**options)
-            except AgentError as e:
-                logging.critical("%s", e)
-                sys.exit(1)
-            run['agents'][i] = agent
+    try:
+        for n, run in enumerate(run_data['runs']):
+            logging.info("Run #%s started", n + 1)
+            agents: list[tuple[Agent, dict]] = run.get('agents', [])
+            for i, agent_record in enumerate(agents):
+                agent, options = agent_record
+                logging.debug('Setting options for agent %s', agent.name)
+                try:
+                    agent.set_options(**options)
+                except AgentError as e:
+                    logging.critical("%s", e)
+                    sys.exit(1)
+                run['agents'][i] = agent
 
-        engine = Engine(**run)
-        engine.run()
+            engine = Engine(**run)
+            engine.run()
+            logging.info("Run #%s terminated", n + 1)
+    except KeyboardInterrupt:
+        logging.info("Interrupted, terminating all agents...")
+        for agent in cast(list[Agent], run_data['agents']):
+            agent.on_test_end()
         logging.info("Run #%s terminated", n + 1)
 
-    for agent in run_data['agents']:
+    for agent in cast(list[Agent], run_data['agents']):
         agent.on_shutdown()
 
 
@@ -735,24 +741,30 @@ def replay(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None
 
     logging.info("Config file parsed successfully")
 
-    n = args.run - 1
-    test_case = args.test_case - 1 if args.test_case is not None else None
-    run: dict[str, Any] = run_data['runs'][n]
-    logging.info("Run #%s started", args.run)
-    agents: list[tuple[Agent, dict]] = run.get('agents', [])
-    for i, agent_record in enumerate(agents):
-        agent, options = agent_record
-        logging.debug('Setting options for agent %s', agent.name)
-        try:
-            agent.set_options(**options)
-        except AgentError as e:
-            logging.critical("%s", e)
-            sys.exit(1)
-        run['agents'][i] = agent
+    try:
+        n = args.run - 1
+        test_case = args.test_case - 1 if args.test_case is not None else None
+        run: dict[str, Any] = run_data['runs'][n]
+        logging.info("Run #%s started", args.run)
+        agents: list[tuple[Agent, dict]] = run.get('agents', [])
+        for i, agent_record in enumerate(agents):
+            agent, options = agent_record
+            logging.debug('Setting options for agent %s', agent.name)
+            try:
+                agent.set_options(**options)
+            except AgentError as e:
+                logging.critical("%s", e)
+                sys.exit(1)
+            run['agents'][i] = agent
 
-    engine = Engine(**run)
-    engine.replay(args.epoch - 1, args.seed, test_case)
-    logging.info("Run #%s terminated", args.run)
+        engine = Engine(**run)
+        engine.replay(args.epoch - 1, args.seed, test_case)
+        logging.info("Run #%s terminated", args.run)
+    except KeyboardInterrupt:
+        logging.info("Interrupted, terminating all agents...")
+        for agent, _ in cast(list[tuple[Agent, Any]], run.get('agents', [])):
+            agent.on_test_end()
+        logging.info("Run #%s terminated", args.run)
 
     for agent, _ in cast(list[tuple[Agent, Any]], run.get('agents', [])):
         agent.on_shutdown()
