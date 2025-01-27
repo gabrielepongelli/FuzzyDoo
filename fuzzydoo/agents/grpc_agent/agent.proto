@@ -76,7 +76,7 @@ message RequestMessage {
   message Options {
     message Option {
       string name = 1;
-      bytes value = 2;
+      string value = 2;
     }
 
     repeated Option records = 1;

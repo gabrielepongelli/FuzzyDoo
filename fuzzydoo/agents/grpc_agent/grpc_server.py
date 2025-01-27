@@ -1,5 +1,5 @@
 import logging
-import pickle
+import json
 from concurrent.futures import ThreadPoolExecutor
 
 import grpc
@@ -96,12 +96,11 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
 
         if request.HasField('options'):
             options = {}
-            for opt in request.options.records:
-                options[opt.name] = pickle.loads(opt.value)
-
             try:
+                for opt in request.options.records:
+                    options[opt.name] = json.loads(opt.value)
                 self.set_options(**options)
-            except AgentError as e:
+            except (AgentError, json.JSONDecodeError) as e:
                 # pylint: disable=no-member
                 return agent_pb2.ResponseMessage(
                     status=agent_pb2.ResponseMessage.Status.ERROR,

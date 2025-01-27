@@ -1,4 +1,4 @@
-import pickle
+import json
 from typing import override
 
 import grpc
@@ -35,7 +35,7 @@ class GrpcClientAgent(Agent):
     def set_options(self, **kwargs):
         # pylint: disable=no-member
         options = [agent_pb2.RequestMessage.Options.Option(
-            name=k, value=pickle.dumps(v)) for k, v in kwargs.items()]
+            name=k, value=json.dumps(v)) for k, v in kwargs.items()]
 
         data = agent_pb2.RequestMessage.Options()
         data.records.extend(options)
