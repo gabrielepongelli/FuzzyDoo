@@ -15,9 +15,12 @@ class BoolMutator(Mutator):
     # pylint: disable=signature-differs
     @override
     def mutate(self, data: BoolType, _) -> Mutation:
-        return Mutation(mutator=type(self), mutator_state={},
-                        field_name=data.name,
-                        mutated_value=not data.value)
+        return Mutation(
+            mutator=type(self),
+            mutator_state={},
+            field_name=data.name,
+            mutated_value=not data.value
+        )
 
 
 __all__ = ['BoolMutator']

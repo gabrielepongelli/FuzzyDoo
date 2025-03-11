@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from random import Random
 
-from .utils.errs import FuzzyDooError
+from .utils.errs import *
 
 
 class MutatorCompleted(FuzzyDooError):
@@ -14,18 +14,6 @@ class MutatorCompleted(FuzzyDooError):
 
 class MutatorNotApplicable(FuzzyDooError):
     """Exception raised when a mutator cannot be applied to a particular istance."""
-
-
-class FuzzableError(FuzzyDooError):
-    """Generic error for the `Fuzzable` interface."""
-
-
-class QualifiedNameFormatError(FuzzableError):
-    """Exception raised when an invalid qualified name is provided."""
-
-
-class ContentNotFoundError(FuzzableError):
-    """Exception raised when some content specified is not found."""
 
 
 DataT = TypeVar('DataT')

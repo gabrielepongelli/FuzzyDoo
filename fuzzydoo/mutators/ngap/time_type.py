@@ -40,9 +40,9 @@ class TimeMutator(Mutator):
 
         Returns:
             dict: A dictionary containing the following keys:
-                'rand_state': The state of the random number generator.
-                'utc': Whether the time to generate is an TimeUTC or not.
-                'extracted_values': The set of already extracted values.
+                - `'rand_state'`: The state of the random number generator.
+                - `'utc'`: Whether the time to generate is an TimeUTC or not.
+                - `'extracted_values'`: The set of already extracted values.
         """
 
         return {

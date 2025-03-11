@@ -1,41 +1,21 @@
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import override, Any
+from typing import Generic, TypeVar, override, Any
 from collections.abc import Callable, Iterator
 from enum import Flag, auto
 
 from .mutator import Fuzzable, mutable
-from .utils.errs import FuzzyDooError
 from .utils.graph import Graph, Node, Edge, Path
 from .utils.register import ClassRegister
 
-
-class ProtocolError(FuzzyDooError):
-    """Generic error for the `Protocol` class."""
+from .utils.errs import *
 
 
-class InvalidPathError(ProtocolError):
-    """Error raised when the provided path is invalid."""
-
-
-class UnknownProtocolError(ProtocolError):
-    """Exception raised when an unknown protocol type is encountered."""
-
-
-class MessageError(FuzzyDooError):
-    """Generic error for the `Message` interface."""
-
-
-class UnknownMessageError(MessageError):
-    """Exception raised when an unknown message type is encountered."""
-
-
-class MessageParsingError(MessageError):
-    """Exception raised when an error occurs while parsing a message."""
+InnerT = TypeVar('InnerT', bound=Any)
 
 
 @mutable
-class Message(Fuzzable):
+class Message(Fuzzable, Generic[InnerT]):
     """Entity which represents a message in a communication protocol.
 
     A `Message` is the content of the nodes of the protocol graph. It is also a `Fuzzable` entity 
@@ -47,7 +27,7 @@ class Message(Fuzzable):
     """
 
     @classmethod
-    def from_name(cls, protocol: str, name: str) -> "Message":
+    def from_name(cls, protocol: str, name: str, *args, **kwargs) -> "Message":
         """Create a new `Message` instance from the specified names.
 
         Args:
@@ -62,11 +42,11 @@ class Message(Fuzzable):
         """
 
         try:
-            return ClassRegister["Message"].get('Message', protocol, name)()
+            return ClassRegister["Message"].get('Message', protocol, name)(*args, **kwargs)
         except ValueError as e:
             raise UnknownMessageError(f"Unknown message '{name}' in protocol '{protocol}'") from e
 
-    def __init__(self, protocol: str, name: str = "", content: Fuzzable | None = None, delay: int = 0, n_replay: int = 1):
+    def __init__(self, protocol: str, name: str = "", content: InnerT | None = None, delay: int = 0, n_replay: int = 1):
         """Initialize a `Message` object.
 
         Args:
@@ -86,6 +66,13 @@ class Message(Fuzzable):
         self.delay: int = delay
         self.n_replay: int = n_replay
 
+    @property
+    def initialized(self) -> bool:
+        """Whether the message has been initialized with some valid content or not."""
+
+        return self._content is not None
+
+    @override
     @property
     def name(self) -> str:
         """Get the name of the message."""

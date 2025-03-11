@@ -1,19 +1,8 @@
 from abc import ABC, abstractmethod
 
-from .utils.errs import FuzzyDooError
 from .utils.register import ClassRegister
 
-
-class PublisherError(FuzzyDooError):
-    """Generic error for the `Publisher` interface."""
-
-
-class PublisherOperationError(PublisherError):
-    """Exception raised when a publisher encounters an error during send/receive operations."""
-
-
-class UnknownPublisherError(PublisherError):
-    """Exception raised when an unknown publisher type is encountered."""
+from .utils.errs import *
 
 
 class Publisher(ABC):
@@ -142,5 +131,4 @@ class PublisherSource:
         return None
 
 
-__all__ = ['Publisher', 'PublisherSource', 'PublisherError', 'UnknownPublisherError',
-           'PublisherOperationError']
+__all__ = ['Publisher', 'PublisherSource']

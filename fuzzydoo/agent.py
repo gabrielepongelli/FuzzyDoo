@@ -4,16 +4,9 @@ from dataclasses import dataclass
 
 from .protocol import ProtocolPath
 from .publisher import PublisherSource
-from .utils.errs import FuzzyDooError
 from .utils.register import ClassRegister
 
-
-class AgentError(FuzzyDooError):
-    """Generic error for the `Agent` interface."""
-
-
-class UnknownAgentError(AgentError):
-    """Exception raised when an unknown agent type is encountered."""
+from .utils.errs import *
 
 
 @dataclass

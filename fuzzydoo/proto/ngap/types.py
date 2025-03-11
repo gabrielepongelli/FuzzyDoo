@@ -1,32 +1,39 @@
 from collections.abc import Callable
 from typing import Type, Any, override, TypeVar
 
+from pycrate_core.utils_py3 import PycrateErr
 from pycrate_asn1rt.asnobj import ASN1Obj
-import pycrate_asn1rt.asnobj_basic as basic
-import pycrate_asn1rt.asnobj_str as string
+from pycrate_asn1rt import asnobj_basic as basic
+from pycrate_asn1rt import asnobj_str as string
+from pycrate_asn1rt import setobj
 
-from ...mutator import Fuzzable, QualifiedNameFormatError, ContentNotFoundError, mutable
+from ...mutator import Fuzzable, mutable
+from ...utils.network import ngap_modify_safety_checks
+
+from ...utils.errs import *
 
 
 class ASN1Type(Fuzzable):
-    """A generic ASN.1 type.
+    """A wrapper class for PyCrate ASN.1 types, providing a unified interface for fuzzing 
+    operations.
 
-    This class represents a generic ASN.1 type that can be fuzzed. This class provides a common 
-    interface for interacting with different ASN.1 types and allows for easy fuzzing of these types.
+    `ASN1Type` serves as an abstraction layer over various ASN.1 data types used in NGAP messages,
+    encapsulating PyCrate's `ASN1Obj` subtypes. It provides a consistent interface for accessing and
+    manipulating these values, while also supporting fuzzing operations.
 
-    In practice, this class is a wrapper around the basic subtypes of ASN1Obj from the pycrate 
-    package.
+    Note:
+        This class is designed to be subclassed for specific types (e.g., `IntType`, `EnumType`). 
+        Subclasses may provide additional type-specific functionality.
     """
 
     def __init__(self, content: ASN1Obj, path: list[str], parent):
-        """Initialize an `ASN1Type` object.
+        """Initialize a new instance of `ASN1Type`.
 
         Args:
             content: The content of the ASN.1 type. This should be an instance of a class
                 derived from `pycrate_asn1rt.asnobj.ASN1Obj`.
-            path: The path to the current ASN.1 type within a message.
-            parent: The parent fuzzable entity. It should be an instance of a class derived from 
-                `NGAPMessage`
+            path: The path to the current ASN.1 type within `parent`.
+            parent: The parent fuzzable entity.
         """
 
         self._content: ASN1Obj = content
@@ -39,11 +46,26 @@ class ASN1Type(Fuzzable):
 
         return self._content.get_val()
 
+    @property
+    def possible_values(self) -> list:
+        """The possible values for this ASN.1 type specified by its constraints."""
+
+        return []
+
     @value.setter
     def value(self, new_value):
         if isinstance(new_value, type(self)):
             new_value = new_value.value
-        self._content.set_val(new_value)
+
+        try:
+            ngap_modify_safety_checks(self._content, [], enable=True)
+            self._content.set_val(new_value)
+        except PycrateErr:
+            # disable them only if really needed since it will affect also the final APER encoding
+            self._parent.disable_constraints(self.qualified_name)
+
+            ngap_modify_safety_checks(self._content, [], enable=False)
+            self._content.set_val(new_value)
 
         # we need this to update the value globally, otherwise if we then convert the message to
         # raw bytes, the changes won't be reflected
@@ -152,10 +174,6 @@ class NullType(ASN1Type):
     """
 
     @override
-    @property
-    def fuzzable(self) -> bool:
-        return False
-
     def mutators(self):
         return []
 
@@ -176,6 +194,57 @@ class IntType(ASN1Type):
 
     ASN.1 basic type INTEGER object. Its values are of type `int`.
     """
+
+    @property
+    def possible_ranges(self) -> list[tuple[int, int]]:
+        """The possible ranges for the value in the form `[lower, upper)`."""
+
+        value_constraints: setobj.ASN1Set | None = self.constraints.get('val', None)
+        if value_constraints is None:
+            return []
+
+        ranges = []
+        for elem in value_constraints.root:
+            if not isinstance(elem, setobj.ASN1RangeInt):
+                # it is a single value
+                continue
+            ranges.append((elem.lb, elem.ub + 1))
+
+        if value_constraints.ext is None:
+            return ranges
+
+        for elem in value_constraints.ext:
+            if not isinstance(elem, setobj.ASN1RangeInt):
+                # it is a single value
+                continue
+            ranges.append((elem.lb, elem.ub + 1))
+
+        return ranges
+
+    @override
+    @property
+    def possible_values(self) -> list:
+        value_constraints: setobj.ASN1Set | None = self.constraints.get('val', None)
+        if value_constraints is None:
+            return []
+
+        values = []
+        for elem in value_constraints.root:
+            if isinstance(elem, setobj.ASN1RangeInt):
+                # it is a range value
+                continue
+            values.append(elem)
+
+        if value_constraints.ext is None:
+            return values
+
+        for elem in value_constraints.ext:
+            if isinstance(elem, setobj.ASN1RangeInt):
+                # it is a range value
+                continue
+            values.append(elem)
+
+        return values
 
 
 @mutable
@@ -205,14 +274,9 @@ class EnumType(ASN1Type):
     the values obtainable by calling `possible_values`.
     """
 
+    @override
     @property
-    def possible_values(self) -> list[str]:
-        """The possible values for this ENUMERATED ASN.1 type.
-
-        Returns:
-            list[str]: A list of strings representing the possible values for this ENUMERATED type.
-        """
-
+    def possible_values(self) -> list:
         # pylint: disable=protected-access
         return list(self._content._cont_rev.values())
 
@@ -235,26 +299,9 @@ class RelOIDType(ASN1Type):
     """
 
 
-class BaseStringType(ASN1Type):
-    """Generic class for basic string types."""
-
-    @property
-    def codec(self) -> str:
-        """The specific codec used for this string type."""
-
-        # pylint: disable=protected-access
-        return self._content._codec.replace('-', '_')
-
-
-class AlphabeticalStringType(BaseStringType):
-    """Generic class for string types that have a fixed alphabet."""
-
-    @property
-    def alphabet(self) -> str:
-        """The specific alphabet used for this string type."""
-
-        # pylint: disable=protected-access
-        return self._content._ALPHA_RE
+@mutable
+class SequenceType(ASN1Type):
+    """Represents a generic sequential type for handling collections of elements."""
 
 
 @mutable
@@ -268,14 +315,109 @@ class BitStrType(ASN1Type):
     - The 2nd element represents the length in bits.
     """
 
+    @property
+    def possible_sizes(self) -> list[int]:
+        """The possible sizes for this instance as specified in its constraints."""
+
+        size_constraints: setobj.ASN1Set | None = self.constraints.get('sz', None)
+        if size_constraints is None:
+            return []
+
+        sizes = []
+        for elem in size_constraints.root:
+            if isinstance(elem, setobj.ASN1RangeInt):
+                sizes.extend(range(elem.lb, elem.ub + 1))
+            else:
+                sizes.append(elem)
+
+        if size_constraints.ext is None:
+            return sizes
+
+        for elem in size_constraints.ext:
+            if isinstance(elem, setobj.ASN1RangeInt):
+                sizes.extend(range(elem.lb, elem.ub + 1))
+            else:
+                sizes.append(elem)
+
+        return sizes
+
 
 @mutable
 @mapped(string.OCT_STR)
-class OctStrType(ASN1Type):
+class OctStrType(SequenceType):
     """ASN.1 basic type OCTET STRING object.
 
     ASN.1 basic type OCTET STRING object. Its values are of type `bytes`.
     """
+
+    @property
+    def possible_sizes(self) -> list[int]:
+        """The possible sizes for this instance as specified in its constraints."""
+
+        size_constraints: setobj.ASN1Set | None = self.constraints.get('sz', None)
+        if size_constraints is None:
+            return []
+
+        sizes = []
+        for elem in size_constraints.root:
+            if isinstance(elem, setobj.ASN1RangeInt):
+                sizes.extend(range(elem.lb, elem.ub + 1))
+            else:
+                sizes.append(elem)
+
+        if size_constraints.ext is None:
+            return sizes
+
+        for elem in size_constraints.ext:
+            if isinstance(elem, setobj.ASN1RangeInt):
+                sizes.extend(range(elem.lb, elem.ub + 1))
+            else:
+                sizes.append(elem)
+
+        return sizes
+
+
+class BaseStringType(SequenceType):
+    """Generic class for basic string types."""
+
+    @property
+    def codec(self) -> str:
+        """The specific codec used for this string type."""
+
+        # pylint: disable=protected-access
+        return self._content._codec.replace('-', '_')
+
+    @property
+    def possible_sizes(self) -> list[int]:
+        """The possible sizes for this instance as specified in its constraints."""
+
+        size_constraints: setobj.ASN1Set | None = self.constraints.get('sz', None)
+        if size_constraints is None:
+            return []
+
+        sizes = []
+        for elem in size_constraints.root:
+            if isinstance(elem, setobj.ASN1RangeInt):
+                sizes.extend(range(elem.lb, elem.ub + 1))
+            else:
+                sizes.append(elem)
+
+        if size_constraints.ext is None:
+            return sizes
+
+        for elem in size_constraints.ext:
+            if isinstance(elem, setobj.ASN1RangeInt):
+                sizes.extend(range(elem.lb, elem.ub + 1))
+            else:
+                sizes.append(elem)
+
+        return sizes
+
+    @property
+    def alphabet(self) -> str | None:
+        """The specific alphabet used for this string type."""
+
+        return getattr(self._content, '_ALPHA_RE', default=None)
 
 
 @mutable
@@ -289,7 +431,7 @@ class StrUtf8Type(BaseStringType):
 
 @mutable
 @mapped(string.STR_NUM)
-class StrNumType(AlphabeticalStringType):
+class StrNumType(BaseStringType):
     """ASN.1 basic type NumericString object.
 
     ASN.1 basic type NumericString object. Its values are of type `str`.
@@ -298,7 +440,7 @@ class StrNumType(AlphabeticalStringType):
 
 @mutable
 @mapped(string.STR_PRINT)
-class StrPrintType(AlphabeticalStringType):
+class StrPrintType(BaseStringType):
     """ASN.1 basic type PrintableString object.
 
     ASN.1 basic type PrintableString object. Its values are of type `str`.
@@ -334,7 +476,7 @@ class StrVidType(BaseStringType):
 
 @mutable
 @mapped(string.STR_IA5)
-class StrIa5Type(AlphabeticalStringType):
+class StrIa5Type(BaseStringType):
     """ASN.1 basic type IA5String object.
 
     ASN.1 basic type IA5String object. Its values are of type `str`.
@@ -352,7 +494,7 @@ class StrGraphType(BaseStringType):
 
 @mutable
 @mapped(string.STR_VIS)
-class StrVisType(AlphabeticalStringType):
+class StrVisType(BaseStringType):
     """ASN.1 basic type VisibleString object.
 
     ASN.1 basic type VisibleString object. Its values are of type `str`.
@@ -361,7 +503,7 @@ class StrVisType(AlphabeticalStringType):
 
 @mutable
 @mapped(string.STR_ISO646)
-class StrIso646Type(AlphabeticalStringType):
+class StrIso646Type(BaseStringType):
     """ASN.1 basic type ISO646String object.
 
     ASN.1 basic type ISO646String object. Its values are of type `str`.
@@ -433,8 +575,8 @@ __all__ = [
     "EnumType",
     "OIDType",
     "RelOIDType",
+    "SequenceType",
     "BaseStringType",
-    "AlphabeticalStringType",
     "BitStrType",
     "OctStrType",
     "StrUtf8Type",

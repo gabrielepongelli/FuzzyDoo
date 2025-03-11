@@ -10,25 +10,14 @@ from random import Random
 
 import yaml
 
-from .protocol import Protocol, ProtocolPath, Message, MessageParsingError
-from .publisher import Publisher, PublisherOperationError
-from .agent import AgentMultiplexer, Agent, AgentError, ExecutionContext
-from .transformer import Encoder, Decoder, EncodingError, DecodingError
+from .protocol import Protocol, ProtocolPath, Message
+from .publisher import Publisher
+from .agent import AgentMultiplexer, Agent, ExecutionContext
+from .transformer import Encoder, Decoder
 from .mutator import Fuzzable, Mutation, Mutator, MutatorCompleted, MutatorNotApplicable
-from .utils.errs import FuzzyDooError
 from .utils.other import opened_w_error
 
-
-class FuzzingEngineError(FuzzyDooError):
-    """Generic error for the `Engine` class."""
-
-
-class SetupFailedError(FuzzingEngineError):
-    """Exception raised when an error occurs during a run/epoch/test case setup."""
-
-
-class TestCaseExecutionError(FuzzingEngineError):
-    """Exception raised when an error occurs during test case execution."""
+from .utils.errs import *
 
 
 class Engine:

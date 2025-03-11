@@ -11,15 +11,17 @@ class EnumMutator(Mutator):
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
-        self._possible_values: list[int] | None = None
+
+        self._possible_values: list[str] | None = None
+        self._last_extracted_value: str | None = None
 
     def _export_state(self) -> dict:
         """Export the current state of the `EnumMutator`.
 
         Returns:
             dict: A dictionary containing the following keys:
-                'rand_state': The state of the random number generator.
-                'possible_values': The list of possible values that haven't been used yet.
+                - `'rand_state'`: The state of the random number generator.
+                - `'possible_values'`: The list of possible values that haven't been used yet.
         """
 
         return {
@@ -27,44 +29,40 @@ class EnumMutator(Mutator):
             'possible_values': list(self._possible_values) if self._possible_values is not None else None
         }
 
-    def _mutate(self, data: EnumType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
-        """Helper method for `mutate` and `next`.
+    @override
+    def next(self):
+        self._possible_values.remove(self._last_extracted_value)
+        if len(self._possible_values) == 0:
+            raise MutatorCompleted()
 
-        Since the operations performed for `mutate` and `next` are almost identical, they are
-        implemented all here, and based on the value of `update_state` this function will behave
-        like `next` (`True`) or `mutate` (`False`).
-        """
-
+    @override
+    def mutate(self, data: EnumType, state: dict[str, Any] | None = None) -> Mutation:
         rand = Random()
         rand.setstate(self._rand.getstate())
-        possible_values = self._possible_values
-        set_state = possible_values is None
+        mutator_state: dict
 
         if state is not None:
             rand.setstate(state['rand_state'])
             possible_values = state['possible_values']
-        elif set_state:
+            mutator_state = state
+        elif self._possible_values is None:
             self._possible_values = possible_values = data.possible_values
-
-        value = rand.choice(possible_values)
-
-        if update_state:
-            self._possible_values.remove(value)
-            if len(self._possible_values) == 0:
-                raise MutatorCompleted()
+            mutator_state = self._export_state()
         else:
-            return Mutation(mutator=type(self),
-                            mutator_state=self._export_state(),
-                            field_name=data.name,
-                            mutated_value=value)
+            possible_values = self._possible_values
+            mutator_state = self._export_state()
 
-    @override
-    def next(self):
-        self._mutate(None, True)
+        self._last_extracted_value = rand.choice(possible_values)
 
-    @override
-    def mutate(self, data: EnumType, state: dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(data, False, state)
+        if state is None:
+            self._rand = rand
+
+        return Mutation(
+            mutator=type(self),
+            mutator_state=mutator_state,
+            field_name=data.name,
+            mutated_value=self._last_extracted_value
+        )
 
 
 __all__ = ['EnumMutator']

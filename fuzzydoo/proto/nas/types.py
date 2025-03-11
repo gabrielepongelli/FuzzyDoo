@@ -2,13 +2,17 @@ from typing import override, Any, Type, TypeVar, cast
 from collections.abc import Callable
 
 from pycrate_core.elt import Atom
-import pycrate_core.base as base
+from pycrate_core import base
 
-from ...mutator import Fuzzable, QualifiedNameFormatError, ContentNotFoundError, mutable
+from ...mutator import Fuzzable, mutable
+from ...utils.network import nas_disable_safety_checks
+
+from ...utils.errs import *
 
 
 class AtomicType(Fuzzable):
-    """A wrapper class for PyCrate `Atom` types, providing a unified interface for fuzzing operations.
+    """A wrapper class for PyCrate `Atom` types, providing a unified interface for fuzzing 
+    operations.
 
     `AtomicType` serves as an abstraction layer over various atomic data types used in NAS messages,
     encapsulating PyCrate's `Atom` subtypes. It provides a consistent interface for accessing and
@@ -25,35 +29,42 @@ class AtomicType(Fuzzable):
         Args:
             content: The content of the atomic type. This should be an instance of a class derived 
                 from `pycrate_core.elt.Atom`.
-            path: The path to the current atomic type within a message.
-            parent: The parent fuzzable entity. It should be an instance of a class derived from 
-                `NASMessage`
+            path: The path to the current atomic type within `parent`.
+            parent: The parent fuzzable entity.
         """
 
-        self._content: Atom = content
         self._path: list[str] = [str(p) for p in path]
         self._parent: Fuzzable = parent
+        self._content: Atom = content
 
-    @property
-    def value(self):
-        """The value represented by this atomic type."""
+        # to enable the assignment of invalid values
+        nas_disable_safety_checks(self._content)
+
+    def _value_getter(self):
+        """Function called by the property `value`."""
 
         return self._content.get_val()
 
-    @value.setter
-    def value(self, new_value):
+    def _value_setter(self, new_value):
+        """Function called by the property `value`."""
+
         if isinstance(new_value, type(self)):
             new_value = new_value.value
         self._content.set_val(new_value)
 
     @property
-    def possible_values(self) -> list:
-        """The possible values for this atomic type.
+    def value(self):
+        """The value represented by this atomic type."""
 
-        Returns:
-            list: A list representing the possible values for this atomic type. If no values are 
-                specified, an empty list is returned.
-        """
+        return self._value_getter()
+
+    @value.setter
+    def value(self, new_value):
+        self._value_setter(new_value)
+
+    @property
+    def possible_values(self) -> list:
+        """The possible values for this atomic type."""
 
         # pylint: disable=protected-access
         if isinstance(self._content._dic, dict):
@@ -63,7 +74,7 @@ class AtomicType(Fuzzable):
 
     @property
     def bit_length(self) -> int:
-        """Get the bit length of this atomic type."""
+        """The bit length of this atomic type."""
 
         return self._content.get_bl()
 
@@ -160,8 +171,13 @@ def map_type(type_to_map: Type[Atom]) -> Type[AtomicType]:
 
 
 @mutable
+class SequenceType(AtomicType):
+    """Represents a generic sequential type for handling collections of elements."""
+
+
+@mutable
 @mapped(base.Buf)
-class BufferType(AtomicType):
+class BufferType(SequenceType):
     """Represents an atomic buffer type for handling binary data.
 
     The `BufferType` class is a specialized subclass of `AtomicType` designed to manage binary data
@@ -169,10 +185,17 @@ class BufferType(AtomicType):
     manipulating buffer values, which are represented as `bytes`.
     """
 
+    @override
+    def _value_setter(self, new_value: "BufferType | bytes"):
+        if isinstance(new_value, BufferType):
+            new_value: bytes = new_value.value
+        self._content.set_val(new_value)
+        self._content.set_bl(len(new_value) * 8)
+
 
 @mutable
 @mapped(base.String)
-class StringType(AtomicType):
+class StringType(SequenceType):
     """Represents an atomic string type for handling textual data.
 
     The `StringType` class is a specialized subclass of `AtomicType` designed to manage string data
@@ -186,10 +209,29 @@ class StringType(AtomicType):
 
         return cast(base.String, self._content).CODEC
 
+    @override
+    def _value_setter(self, new_value: "StringType | str"):
+        if isinstance(new_value, StringType):
+            new_value: str = new_value.value
+        self._content.set_val(new_value)
+        self._content.set_bl(len(new_value.encode(self.codec)) * 8)
+
+
+@mutable
+class NumericType(AtomicType):
+    """Represents a generic numeric type."""
+
+    @override
+    def _value_setter(self, new_value: "NumericType | int"):
+        if isinstance(new_value, NumericType):
+            new_value: int = new_value.value
+        self._content.set_val(new_value)
+        self._content.set_bl(new_value.bit_length())
+
 
 @mutable
 @mapped(base.Uint)
-class UintType(AtomicType):
+class UintType(NumericType):
     """Represents an atomic big-endian unsigned integer type for handling numeric data.
 
     The `UintType` class is a specialized subclass of `AtomicType` designed to manage unsigned 
@@ -200,7 +242,7 @@ class UintType(AtomicType):
 
 @mutable
 @mapped(base.Int)
-class IntType(AtomicType):
+class IntType(NumericType):
     """Represents an atomic big-endian signed integer type for handling numeric data.
 
     The `IntType` class is a specialized subclass of `AtomicType` designed to manage signed 
@@ -211,7 +253,7 @@ class IntType(AtomicType):
 
 @mutable
 @mapped(base.UintLE)
-class UintLEType(AtomicType):
+class UintLEType(NumericType):
     """Represents an atomic little-endian unsigned integer type for handling numeric data.
 
     The `UintType` class is a specialized subclass of `AtomicType` designed to manage unsigned 
@@ -222,7 +264,7 @@ class UintLEType(AtomicType):
 
 @mutable
 @mapped(base.IntLE)
-class IntLEType(AtomicType):
+class IntLEType(NumericType):
     """Represents an atomic little-endian signed integer type for handling numeric data.
 
     The `IntType` class is a specialized subclass of `AtomicType` designed to manage signed 
@@ -234,8 +276,10 @@ class IntLEType(AtomicType):
 __all__ = [
     'map_type',
     'AtomicType',
+    'SequenceType',
     'BufferType',
     'StringType',
+    'NumericType',
     'UintType',
     'IntType',
     'UintLEType',

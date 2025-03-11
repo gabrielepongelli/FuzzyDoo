@@ -8,10 +8,12 @@ from pycrate_core.base import Buf
 from CryptoMobile.Milenage import Milenage
 from CryptoMobile.conv import conv_501_A2, conv_501_A6, conv_501_A7, conv_501_A8
 
-from ..transformer import Encoder, Decoder, EncodingError, DecodingError, Transformer
+from ..transformer import Encoder, Decoder, Transformer
 from ..protocol import Message, MessageParsingError
 from ..proto.nas.messages import NASMessage
 from ..utils.register import register
+
+from ..utils.errs import *
 
 
 @register(Transformer)

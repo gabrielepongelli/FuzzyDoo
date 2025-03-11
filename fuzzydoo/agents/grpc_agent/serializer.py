@@ -3,7 +3,7 @@ from typing import TypeVar, Generic
 
 from google.protobuf.message import Message
 
-from ...utils.errs import FuzzyDooError
+from ...utils.errs import *
 
 
 class DeserializationError(FuzzyDooError):

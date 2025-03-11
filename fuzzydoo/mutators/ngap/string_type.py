@@ -3,7 +3,7 @@ from random import Random
 
 from pycrate_asn1rt.setobj import ASN1Range
 
-from ...mutator import Mutator, Mutation, MutatorCompleted, mutates
+from ...mutator import Mutator, Mutation, MutatorCompleted, MutatorNotApplicable, mutates
 from ...utils.chars import TOTAL_CHARS, CHAR_RANGES
 from ...proto.ngap.types import *
 
@@ -30,13 +30,13 @@ class BitStrMutator(Mutator):
 
         Returns:
             dict: A dictionary containing the following keys:
-                'rand_state': The state of the random number generator.
-                'bit_len' (optional): The length of the string in bits.
-                'range' (optional): The limits of the range values in which values should be
-                    generated.
-                'extracted_values' (optional): The set of already extracted values.
-                'possible_values' (optional): The list of possible values if the range size is =<
-                    256.
+                - `'rand_state'`: The state of the random number generator.
+                - `'bit_len'` (optional): The length of the string in bits.
+                - `'range'` (optional): The limits of the range values in which values should be
+                        generated.
+                - `'extracted_values'` (optional): The set of already extracted values.
+                - `'possible_values'` (optional): The list of possible values if the range size is 
+                        =< 256.
         """
 
         state = {'rand_state': self._rand.getstate()}
@@ -138,341 +138,468 @@ class BitStrMutator(Mutator):
 
 
 @mutates(OctStrType)
-class OctStrMutator(Mutator):
-    """Mutator for `OctStrType` objects that generate random values."""
+class OctStrRandomMutator(Mutator):
+    """Mutator for `OctStrType` objects that generate random values that are not in the list of 
+    possible ones.
+    """
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
 
-        # initially we assume a size of 64 bytes, later when we get a reference of the particular
-        # instance we are working on, we will modify this
-        self._size: int | None = None
-        self._extracted_values: set[bytes] | None = None
-
-        # for cases in which the size is = 1, we directly store each possible value
-        self._possible_values: list[bytes] | None = None
+        self._sizes: list[int] = []
+        self._extracted_values: list[set[bytes]] = []
+        self._last_extracted_value: tuple[int, bytes] | None = None
 
     def _export_state(self) -> dict:
-        """Export the current state of the `OctStrMutator`.
+        """Export the current state.
 
         Returns:
             dict: A dictionary containing the following keys:
-                'rand_state': The state of the random number generator.
-                'size' (optional): The size of the string in bytes.
-                'extracted_values' (optional): The set of already extracted values.
-                'possible_values' (optional): The list of possible values if the range size is =<
-                    256.
+                - `'rand_state'`: The state of the random number generator.
+                - `'sizes'`: The possible sizes of the string in bits.
+                - `'extracted_values'`: The list of already extracted values for each possible size.
         """
 
-        state = {'rand_state': self._rand.getstate()}
+        return {
+            'rand_state': self._rand.getstate(),
+            'sizes': list(self._sizes),
+            'extracted_values': [set(x) for x in self._extracted_values],
+        }
 
-        if self._size is not None:
-            state['size'] = self._size
+    def _get_allowed_values(self, data: OctStrType, size: int) -> set[bytes]:
+        """Get all the allowed values for the given data type.
 
-        if self._extracted_values is not None:
-            state['extracted_values'] = set(self._extracted_values)
+        Args:
+            data: The data from which to get the allowed values.
+            size: The size of the values to that will be considered.
 
-        if self._possible_values is not None:
-            state['possible_values'] = list(self._possible_values)
-
-        return state
-
-    def _mutate(self, data: OctStrType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
-        """Helper method for `mutate` and `next`.
-
-        Since the operations performed for `mutate` and `next` are almost identical, they are
-        implemented all here, and based on the value of `update_state` this function will behave
-        like `next` (`True`) or `mutate` (`False`).
+        Returns:
+            set[bytes]: A set containing all the allowed values for this data. If no specific 
+                allowed value exists, an empty set will be returned.
         """
 
-        rand = Random()
-        rand.setstate(self._rand.getstate())
-        size = self._size
-        extracted_values = self._extracted_values
-        possible_values = self._possible_values
-        set_state = size is None and possible_values is None
-
-        if state is not None:
-            rand.setstate(state['rand_state'])
-            size = state.get('size', None)
-            extracted_values = state.get('extracted_values', None)
-            possible_values = state.get('possible_values', None)
-        elif set_state:
-            if data and data.constraints and 'sz' in data.constraints:
-                # try to read the range limits from the data
-                size = data.constraints['sz'].root[0]
-                if isinstance(size, ASN1Range):
-                    size = size.ub + 1
-
-                if size == 1:
-                    # there are only a few values, so enumerate them all
-                    possible_values = [i.to_bytes() for i in range(0, 256)]
-                else:
-                    extracted_values = set()
-            else:
-                size = 64
-                extracted_values = set()
-
-            self._size = size
-            self._extracted_values = extracted_values
-            self._possible_values = possible_values
-
-        if possible_values is not None:
-            value = rand.choice(possible_values)
-        else:
-            while True:
-                value = rand.randbytes(size)
-                if value not in extracted_values:
-                    break
-
-        if update_state:
-            if possible_values is not None:
-                self._possible_values.remove(value)
-                if len(self._possible_values) == 0:
-                    raise MutatorCompleted()
-            elif extracted_values is not None:
-                self._extracted_values.add(value)
-                if len(self._extracted_values) == 2**(size * 8):
-                    raise MutatorCompleted()
-        else:
-            return Mutation(mutator=type(self),
-                            mutator_state=self._export_state(),
-                            field_name=data.name,
-                            mutated_value=value)
+        return set(filter(lambda v: len(v) == size, data.possible_values))
 
     @override
     def next(self):
-        self._mutate(None, True)
+        size_idx, val = self._last_extracted_value
+        self._extracted_values[size_idx].add(val)
+
+        # remove a range if all its values were extracted
+        if len(self._extracted_values[size_idx]) == self._sizes[size_idx]:
+            del self._sizes[size_idx]
+            del self._extracted_values[size_idx]
+
+        if len(self._sizes) == 0:
+            raise MutatorCompleted()
 
     @override
     def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(data, False, state)
+        rand = Random()
+        rand.setstate(self._rand.getstate())
+        mutator_state: dict
+
+        if state is not None:
+            # if there is a state, load variables from the state
+            rand.setstate(state['rand_state'])
+            sizes = state['sizes']
+            extracted_values = state['extracted_values']
+            mutator_state = state
+        elif not self._extracted_values:
+            self._sizes = sizes = data.possible_sizes
+            if not sizes:
+                # every value is allowed
+                raise MutatorNotApplicable()
+
+            for s in sizes:
+                self._extracted_values.append(self._get_allowed_values(data, s))
+            extracted_values = self._extracted_values
+
+            mutator_state = self._export_state()
+        else:
+            sizes = self._sizes
+            extracted_values = self._extracted_values
+            mutator_state = self._export_state()
+
+        while True:
+            size_idx = rand.randrange(0, len(sizes))
+            size = sizes[size_idx]
+            val = rand.randbytes(size)
+            if val not in extracted_values[size_idx]:
+                self._last_extracted_value = (size_idx, val)
+                break
+
+        if state is None:
+            self._rand = rand
+
+        return Mutation(
+            mutator=type(self),
+            mutator_state=mutator_state,
+            field_name=data.name,
+            mutated_value=val
+        )
 
 
-@mutates(StrUtf8Type, StrTeleType, StrT61Type, StrVidType, StrGraphType, StrGeneType, StrUnivType, StrBmpType)
-class GenericStrMutator(Mutator):
-    """Mutator for generic string objects that generate random strings in their codec."""
+@mutates(OctStrType)
+class OctStrPartialContentMutator(Mutator):
+    """Mutator for `OctStrType` objects that generates values with some different bytes w.r.t. 
+    the original ones.
+    """
+
+    _MAX_RANGE_DELTA = 50
+    _SPECIAL_VALUES = [b"\x00", b"\x01", b"\xfe", b"\xff"]
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
 
-        # initially we assume a size of 256 bytes, later when we get a reference of the particular
-        # instance we are working on, we will modify this
-        self._size: int | None = None
-        self._codec: str = ""
-        self._extracted_values: set[str] = set()
+        self._extracted_values: set[bytes] = set()
+        self._last_extracted_value: bytes | None = None
 
     def _export_state(self) -> dict:
-        """Export the current state of the `GenericStrMutator`.
+        """Export the current state.
 
         Returns:
             dict: A dictionary containing the following keys:
-                'rand_state': The state of the random number generator.
-                'extracted_values': The set of already extracted values.
-                'codec': The codec to use.
-                'size' (optional): The size of the string in bytes.
+                - `'rand_state'`: The state of the random number generator.
+                - `'extracted_values'`: The set of already extracted values.
         """
 
-        state = {
+        return {
             'rand_state': self._rand.getstate(),
             'extracted_values': set(self._extracted_values),
-            'codec': self._codec
         }
 
-        if self._size is not None:
-            state['size'] = self._size
+    def _random_range(self, size: int, rand: Random) -> tuple[int, int]:
+        """Pick a random sub-range in `[0, size]`.
 
-        return state
+        Args:
+            size: The maximum size of the original range.
+            rand: The random number generator to use.
 
-    def _generate_random_string(self, rand: Random, length: int, codec: str) -> str:
+        Returns:
+            tuple[int, int]: The start and end indices of the random sub-range.
+        """
+
+        val1 = rand.randint(0, size)
+        val2 = rand.randint(0, size)
+        start, end = (min(val1, val2), max(val1, val2))
+        return (start, min(end, start + self._MAX_RANGE_DELTA))
+
+    def _range_to_random(self, data: bytes, rand: Random) -> bytes:
+        """Change a random sequence of bytes in the buffer.
+
+        Args:
+            data: The buffer to modify.
+            rand: The random number generator to use.
+
+        Returns:
+            bytes: The modified buffer.
+        """
+
+        start, end = self._random_range(len(data), rand)
+        return data[:start] + rand.randbytes(end - start) + data[end:]
+
+    def _range_to_special(self, data: bytes, rand: Random) -> bytes:
+        """Change a random sequence of bytes in the buffer to some special values.
+
+        Args:
+            data: The buffer to modify.
+            rand: The random number generator to use.
+
+        Returns:
+            bytes: The modified buffer.
+        """
+
+        start, end = self._random_range(len(data), rand)
+        for i in range(start, end):
+            data = data[:i] + rand.choice(self._SPECIAL_VALUES) + data[i + 1:]
+        return data
+
+    def _range_to_null(self, data: bytes, rand: Random) -> bytes:
+        """Change a random sequence of bytes to null bytes.
+
+        Args:
+            data: The buffer to modify.
+            rand: The random number generator to use.
+
+        Returns:
+            bytes: The modified buffer.
+        """
+
+        start, end = self._random_range(len(data), rand)
+        return data[:start] + b"\x00" * (end - start) + data[end:]
+
+    def _range_to_de_null(self, data: bytes, rand: Random) -> bytes:
+        """Change all zero's in a random range to something else.
+
+        Args:
+            data: The buffer to modify.
+            rand: The random number generator to use.
+
+        Returns:
+            bytes: The modified buffer.
+        """
+
+        start, end = self._random_range(len(data), rand)
+        for i in range(start, end):
+            if data[i] == 0:
+                data = data[:i] + rand.randint(1, 255).to_bytes() + data[i + 1:]
+        return data
+
+    @override
+    def next(self):
+        self._extracted_values.add(self._last_extracted_value)
+
+    @override
+    def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
+        rand = Random()
+        rand.setstate(self._rand.getstate())
+        mutator_state: dict
+
+        if state is not None:
+            # if there is a state, load variables from the state
+            rand.setstate(state['rand_state'])
+            extracted_values = state['extracted_values']
+            mutator_state = state
+        else:
+            extracted_values = self._extracted_values
+            mutator_state = self._export_state()
+
+        while True:
+            mutation_func = rand.choice([
+                self._range_to_random,
+                self._range_to_special,
+                self._range_to_null,
+                self._range_to_de_null,
+            ])
+            self._last_extracted_value = mutation_func(data.value, rand)
+            if self._last_extracted_value not in extracted_values:
+                break
+
+        if state is None:
+            self._rand = rand
+
+        return Mutation(
+            mutator=type(self),
+            mutator_state=mutator_state,
+            field_name=data.name,
+            mutated_value=self._last_extracted_value
+        )
+
+
+@mutates(BaseStringType)
+class StringRandomMutator(Mutator):
+    """Mutator for `BaseStringType` objects that generate random strings in their codec."""
+
+    def __init__(self, seed: int = 0):
+        super().__init__(seed)
+
+        self._extracted_values: set[str] = set()
+        self._codec: str | None = None
+        self._last_extracted_value: str | None = None
+
+    def _export_state(self) -> dict:
+        """Export the current state.
+
+        Returns:
+            dict: A dictionary containing the following keys:
+                - `'rand_state'`: The state of the random number generator.
+                - `'extracted_values'`: The set of already extracted values.
+                - `'codec'`: The codec to use.
+        """
+
+        return {
+            'rand_state': self._rand.getstate(),
+            'extracted_values': set(self._extracted_values),
+            'codec': self._codec,
+        }
+
+    def _generate_random_string(self, rand: Random, bit_len: int, codec: str) -> str:
         """Generates a random string of the given length.
 
         Args:
             rand: The random number generator to use.
-            length: The desired length of the string.
-            codec: The codec to use for the string generation. It must be a key in `CHAR_RANGES`.
+            bit_len: The desired length of the string in bits.
+            codec: The codec to use for the string generation.
 
         Returns:
             str: The generated random string.
         """
 
         res = ''
-        for _ in range(length):
+        while bit_len <= len(res.encode(encoding=codec)) * 8:
             chosen_range = rand.choice(CHAR_RANGES[codec])
             code_point = rand.randint(chosen_range[0], chosen_range[1])
             res += chr(code_point)
         return res
 
-    def _mutate(self, data: BaseStringType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
-        """Helper method for `mutate` and `next`.
+    @override
+    def next(self):
+        self._extracted_values.add(self._last_extracted_value)
+        if len(self._extracted_values) == TOTAL_CHARS[self._codec]:
+            raise MutatorCompleted()
 
-        Since the operations performed for `mutate` and `next` are almost identical, they are
-        implemented all here, and based on the value of `update_state` this function will behave
-        like `next` (`True`) or `mutate` (`False`).
-        """
-
+    @override
+    def mutate(self, data: BaseStringType, state: dict[str, Any] | None = None) -> Mutation:
         rand = Random()
         rand.setstate(self._rand.getstate())
-        size = self._size
-        extracted_values = self._extracted_values
-        codec = self._codec
-        set_state = codec is None
+        mutator_state: dict
 
         if state is not None:
             rand.setstate(state['rand_state'])
             extracted_values = state['extracted_values']
             codec = state['codec']
-            size = state.get('size', None)
-        elif set_state:
-            codec = data.codec
-            if data and data.constraints and 'sz' in data.constraints:
-                # try to read the range limits from the data
-                size = data.constraints['sz'].root[0]
-                if isinstance(size, ASN1Range):
-                    size = (size.lb, size.ub + 1)
-                extracted_values = set()
-
-            self._codec = codec
-            self._size = size
-            self._extracted_values = extracted_values
+            mutator_state = state
+        elif self._codec is None:
+            self._codec = codec = data.codec
+            extracted_values = set()
+            mutator_state = self._export_state()
+        else:
+            codec = self._codec
+            extracted_values = self._extracted_values
+            mutator_state = self._export_state()
 
         while True:
-            if size is None:
-                length = rand.randint(1, 256)
-            elif isinstance(size, tuple):
-                length = rand.randint(size[0], size[1])
-            else:
-                length = size
-
-            value = self._generate_random_string(rand, length, codec)
-            if value not in extracted_values:
+            self._last_extracted_value = self._generate_random_string(rand, len(data.value), codec)
+            if self._last_extracted_value not in extracted_values:
                 break
 
-        if update_state:
-            self._extracted_values.add(value)
-            if len(self._extracted_values) == TOTAL_CHARS[codec]:
-                raise MutatorCompleted()
-        else:
-            return Mutation(mutator=type(self),
-                            mutator_state=self._export_state(),
-                            field_name=data.name,
-                            mutated_value=value)
+        if state is None:
+            self._rand = rand
 
-    @override
-    def next(self):
-        self._mutate(None, True)
-
-    @override
-    def mutate(self, data: BaseStringType, state: dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(data, False, state)
+        return Mutation(
+            mutator=type(self),
+            mutator_state=mutator_state,
+            field_name=data.name,
+            mutated_value=self._last_extracted_value
+        )
 
 
-@mutates(StrNumType, StrPrintType, StrIa5Type, StrVisType, StrIso646Type)
-class AlphabetStringMutator(Mutator):
-    """Generic mutator for string types objects with a specific alphabet that generate random values."""
+@mutates(BaseStringType)
+class StringBadEncodeMutator(Mutator):
+    """Mutator for `StringType` objects that generate strings with some invalid bytes for the codec 
+    in use.
+    """
+
+    _MAX_CHARS = 5
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
 
-        # initially we assume a size of 256 bytes, later when we get a reference of the particular
-        # instance we are working on, we will modify this
-        self._size: int | tuple[int, int] | None = None
         self._extracted_values: set[str] = set()
-        self._alphabet: str | None = None
+        self._codec: str | None = None
+        self._bad_code_points: list[int] = []
+        self._last_extracted_value: str | None = None
 
     def _export_state(self) -> dict:
-        """Export the current state of the `AlphabetStringMutator`.
+        """Export the current state.
 
         Returns:
             dict: A dictionary containing the following keys:
-                'rand_state': The state of the random number generator.
-                'extracted_values': The set of already extracted values.
-                'alphabet': The alphabet used for the string generation.
-                'size' (optional): The size of the string in characters.
+                - `'rand_state'`: The state of the random number generator.
+                - `'extracted_values'`: The set of already extracted values.
+                - `'codec'`: The codec to use.
         """
 
-        state = {
+        return {
             'rand_state': self._rand.getstate(),
             'extracted_values': set(self._extracted_values),
-            'alphabet': self._alphabet
+            'codec': self._codec,
         }
 
-        if self._size is not None:
-            state['size'] = self._size
+    def _generate_bad_code_points(self, codec: str) -> list[int]:
+        """Generates a set of bad code points for the given codec.
 
-        return state
+        Args:
+            codec: The codec for which to generate the bad code points.
 
-    def _mutate(self, data: AlphabeticalStringType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
-        """Helper method for `mutate` and `next`.
-
-        Since the operations performed for `mutate` and `next` are almost identical, they are
-        implemented all here, and based on the value of `update_state` this function will behave
-        like `next` (`True`) or `mutate` (`False`).
+        Returns:
+            list[int]: A list of bad code points.
         """
 
+        allowed_ranges = CHAR_RANGES[codec]
+        full_range = [(0, 2**(len(allowed_ranges[-1][-1].to_bytes()) * 8))]
+
+        bad_codes = set(range(*full_range))
+        for start, end in allowed_ranges:
+            for i in range(start, end + 1):
+                bad_codes.discard(i)
+
+        return list(bad_codes)
+
+    def _replace_random(self, data: str, rand: Random) -> str:
+        """Replace some random chars in the given string with bad code points.
+
+        Args:
+            data: The string to modify.
+            rand: The random number generator to use.
+
+        Returns:
+            str: The modified string.
+        """
+
+        n_changes = rand.randint(1, self._MAX_CHARS)
+        n_changes = min(n_changes, len(data))
+
+        changed_chars_pos = []
+        all_pos = list(range(len(data)))
+        for _ in range(n_changes):
+            idx = rand.choice(all_pos)
+            all_pos.remove(idx)
+            changed_chars_pos.append(idx)
+
+        new_data = b""
+        for idx, c in enumerate(data):
+            if idx in changed_chars_pos:
+                new_data += rand.choice(self._bad_code_points).to_bytes()
+            else:
+                new_data += c.encode(encoding=self._codec)
+
+        return new_data.decode('latin1')
+
+    @override
+    def next(self):
+        self._extracted_values.add(self._last_extracted_value)
+
+    @override
+    def mutate(self, data: BaseStringType, state: dict[str, Any] | None = None) -> Mutation:
         rand = Random()
         rand.setstate(self._rand.getstate())
-        size = self._size
-        extracted_values = self._extracted_values
-        alphabet = self._alphabet
-        set_state = size is None
+        mutator_state: dict
+
+        if len(data.value):
+            raise MutatorNotApplicable()
 
         if state is not None:
             rand.setstate(state['rand_state'])
             extracted_values = state['extracted_values']
-            alphabet = state['alphabet']
-            size = state.get('size', None)
-        elif set_state:
-            if data and data.constraints and 'sz' in data.constraints:
-                # try to read the range limits from the data
-                size = data.constraints['sz'].root[0]
-                if isinstance(size, ASN1Range):
-                    size = (size.lb, size.ub + 1)
-
-            self._size = size
-            self._extracted_values = extracted_values
-            self._alphabet = alphabet = data.alphabet
+            codec = state['codec']
+            mutator_state = state
+        elif self._codec is None:
+            self._codec = codec = data.codec
+            extracted_values = set()
+            self._bad_code_points = self._generate_bad_code_points(codec)
+            mutator_state = self._export_state()
+        else:
+            codec = self._codec
+            extracted_values = self._extracted_values
+            mutator_state = self._export_state()
 
         while True:
-            if size is None:
-                length = rand.randint(1, 256)
-            elif isinstance(size, tuple):
-                length = rand.randint(size[0], size[1])
-            else:
-                length = size
-
-            value = ''
-            for _ in range(length):
-                value += rand.choice(alphabet)
-
-            if value not in extracted_values:
+            self._last_extracted_value = self._replace_random(data.value, rand)
+            if self._last_extracted_value not in extracted_values:
                 break
 
-        if update_state:
-            self._extracted_values.add(value)
-            if size is None:
-                length = 256
-            elif isinstance(size, tuple):
-                length = size[1]
-            else:
-                length = size
+        if state is None:
+            self._rand = rand
 
-            if len(self._extracted_values) == len(alphabet) * length:
-                raise MutatorCompleted()
-        else:
-            return Mutation(mutator=type(self),
-                            mutator_state=self._export_state(),
-                            field_name=data.name,
-                            mutated_value=value)
-
-    @override
-    def next(self):
-        self._mutate(None, True)
-
-    @override
-    def mutate(self, data: AlphabeticalStringType, state: dict[str, Any] | None = None) -> Mutation:
-        return self._mutate(data, False, state)
+        return Mutation(
+            mutator=type(self),
+            mutator_state=mutator_state,
+            field_name=data.name,
+            mutated_value=self._last_extracted_value
+        )
 
 
-__all__ = ['BitStrMutator', 'OctStrMutator',
-           'GenericStrMutator', 'AlphabetStringMutator']
+__all__ = ['BitStrMutator', 'OctStrRandomMutator', 'OctStrPartialContentMutator',
+           'StringRandomMutator', 'StringBadEncodeMutator']

@@ -4,10 +4,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 import grpc
 
-from ...agent import Agent, AgentError
+from ...agent import Agent
 from .generated import agent_pb2, agent_pb2_grpc
 from .serializers import ExecutionContextSerializer
 from .serializer import DeserializationError
+
+from ...utils.errs import *
 
 
 class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):

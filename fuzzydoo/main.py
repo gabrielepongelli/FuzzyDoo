@@ -8,6 +8,8 @@ from typing import Any, NoReturn, cast
 
 import yaml
 
+from fuzzydoo.utils.errs import *
+
 
 ######
 # Configurations and default values
@@ -171,7 +173,7 @@ def parse_agent(conf: dict, refs: dict[int, Any], err: Callable[[str], NoReturn]
             error handler.
     """
 
-    from fuzzydoo.agent import Agent, AgentError
+    from fuzzydoo.agent import Agent
 
     check_attr(conf, 'name', str, err)
 
@@ -219,7 +221,7 @@ def parse_publisher(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRet
             function calls the error handler.
     """
 
-    from fuzzydoo.publisher import Publisher, PublisherSource, PublisherError
+    from fuzzydoo.publisher import Publisher, PublisherSource
 
     check_attr(conf, 'name', str, err)
     check_attr(conf, 'actors', list, err)
@@ -279,7 +281,7 @@ def parse_encoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRetur
             or encoder creation, the function calls the error handler.
     """
 
-    from fuzzydoo.transformer import Encoder, TransformerError
+    from fuzzydoo.transformer import Encoder
 
     check_attr(conf, 'name', str, err)
 
@@ -323,7 +325,7 @@ def parse_decoder(conf: dict, refs: dict[int, Any], err: Callable[[str], NoRetur
             or decoder creation, the function calls the error handler.
     """
 
-    from fuzzydoo.transformer import Decoder, TransformerError
+    from fuzzydoo.transformer import Decoder
 
     check_attr(conf, 'name', str, err)
 
@@ -449,7 +451,7 @@ def parse_run(conf: dict, err: Callable[[str], NoReturn]) -> dict[str, Any] | No
             or decoder creation, the function calls the error handler.
     """
 
-    from fuzzydoo.protocol import Protocol, ProtocolError
+    from fuzzydoo.protocol import Protocol
     from fuzzydoo.transformer import Encoder, Decoder
     from fuzzydoo.agent import Agent
     from fuzzydoo.publisher import Publisher
@@ -673,7 +675,7 @@ def fuzz(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None:
     4. Creates an Engine instance with the extracted arguments and runs it.
     """
 
-    from fuzzydoo.agent import Agent, AgentError
+    from fuzzydoo.agent import Agent
     from fuzzydoo.engine import Engine
 
     if args.log_level is not None:
@@ -725,7 +727,7 @@ def replay(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None
     4. Creates an Engine instance with the extracted arguments and runs it.
     """
 
-    from fuzzydoo.agent import Agent, AgentError
+    from fuzzydoo.agent import Agent
     from fuzzydoo.engine import Engine
 
     err = lambda msg: error(parser, sub, msg)

@@ -1,8 +1,10 @@
 from typing import override
 
-from ....protocol import EdgeTag, MessageNode, ProtocolEdge, ProtocolNode, ProtocolPath, Message, UnknownMessageError
+from ....protocol import EdgeTag, MessageNode, ProtocolEdge, ProtocolNode, ProtocolPath, Message
 from ..serializer import Serializer, DeserializationError
 from ..generated import agent_pb2
+
+from ....utils.errs import *
 
 
 class ProtocolNodeSerializer(Serializer[agent_pb2.ProtocolNode, ProtocolNode]):

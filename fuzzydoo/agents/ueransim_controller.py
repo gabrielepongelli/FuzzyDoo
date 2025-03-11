@@ -15,12 +15,14 @@ from typing import override, IO, ClassVar
 
 import yaml
 
-from ..agent import Agent, AgentError, ExecutionContext
+from ..agent import Agent, ExecutionContext
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread, with_thread_safe_get_set
 from ..utils.register import register
 from ..utils.other import first_true, run_as_root
 from ..protocol import ProtocolPath
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
+
+from ..utils.errs import *
 
 
 NGAP_GNB_START = ['NGSetupRequestMessage', 'NGSetupResponseMessage']

@@ -3,10 +3,12 @@ from typing import override
 
 import grpc
 
-from ...agent import Agent, AgentError, ExecutionContext
+from ...agent import Agent, ExecutionContext
 from .serializers import ExecutionContextSerializer
 from .generated import agent_pb2
 from .generated.agent_pb2_grpc import AgentServiceStub
+
+from ...utils.errs import *
 
 
 class GrpcClientAgent(Agent):

@@ -1,28 +1,9 @@
 from abc import ABC, abstractmethod
 
 from .protocol import Message
-from .utils.errs import FuzzyDooError
 from .utils.register import ClassRegister
 
-
-class TransformerError(FuzzyDooError):
-    """Generic error for the `Transformer` interface."""
-
-
-class TransformationError(TransformerError):
-    """Error raised when a transformation operation fails."""
-
-
-class EncodingError(TransformationError):
-    """Error raised when an encoding operation fails."""
-
-
-class DecodingError(TransformationError):
-    """Error raised when a decoding operation fails."""
-
-
-class UnknownTransformerError(TransformerError):
-    """Exception raised when an unknown transformer type is encountered."""
+from .utils.errs import *
 
 
 class Transformer(ABC):

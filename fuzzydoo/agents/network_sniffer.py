@@ -10,11 +10,13 @@ from queue import Queue, ShutDown
 
 import scapy.all as scapy
 
-from ..agent import Agent, AgentError, ExecutionContext
+from ..agent import Agent, ExecutionContext
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread
 from ..utils.register import register
 from ..utils.other import run_as_root
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
+
+from ..utils.errs import *
 
 
 class SnifferThread(EventStoppableThread, ExceptionRaiserThread):
