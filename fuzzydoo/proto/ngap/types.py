@@ -8,7 +8,7 @@ from pycrate_asn1rt import asnobj_str as string
 from pycrate_asn1rt import setobj
 
 from ...mutator import Fuzzable, mutable
-from ...utils.network import ngap_modify_safety_checks
+from ...utils.network import ngap_modify_safety_checks, PYCRATE_NGAP_STRUCT_LOCK
 
 from ...utils.errs import *
 
@@ -44,7 +44,8 @@ class ASN1Type(Fuzzable):
     def value(self):
         """The value represented by this ASN.1 type."""
 
-        return self._content.get_val()
+        with PYCRATE_NGAP_STRUCT_LOCK:
+            return self._content.get_val()
 
     @property
     def possible_values(self) -> list:
@@ -57,15 +58,16 @@ class ASN1Type(Fuzzable):
         if isinstance(new_value, type(self)):
             new_value = new_value.value
 
-        try:
-            ngap_modify_safety_checks(self._content, [], enable=True)
-            self._content.set_val(new_value)
-        except PycrateErr:
-            # disable them only if really needed since it will affect also the final APER encoding
-            self._parent.disable_constraints(self.qualified_name)
+        with PYCRATE_NGAP_STRUCT_LOCK:
+            try:
+                ngap_modify_safety_checks(self._content, [], enable=True)
+                self._content.set_val(new_value)
+            except PycrateErr:
+                # disable them only if really needed since it will affect also the final APER encoding
+                self._parent.disable_constraints(self.qualified_name)
 
-            ngap_modify_safety_checks(self._content, [], enable=False)
-            self._content.set_val(new_value)
+                ngap_modify_safety_checks(self._content, [], enable=False)
+                self._content.set_val(new_value)
 
         # we need this to update the value globally, otherwise if we then convert the message to
         # raw bytes, the changes won't be reflected
@@ -77,7 +79,8 @@ class ASN1Type(Fuzzable):
     def constraints(self) -> dict:
         """The constraints of this ASN.1 type."""
 
-        return self._content.get_const()
+        with PYCRATE_NGAP_STRUCT_LOCK:
+            return self._content.get_const()
 
     @override
     @property
@@ -277,8 +280,9 @@ class EnumType(ASN1Type):
     @override
     @property
     def possible_values(self) -> list:
-        # pylint: disable=protected-access
-        return list(self._content._cont_rev.values())
+        with PYCRATE_NGAP_STRUCT_LOCK:
+            # pylint: disable=protected-access
+            return list(self._content._cont_rev.values())
 
 
 @mutable
@@ -384,8 +388,9 @@ class BaseStringType(SequenceType):
     def codec(self) -> str:
         """The specific codec used for this string type."""
 
-        # pylint: disable=protected-access
-        return self._content._codec.replace('-', '_')
+        with PYCRATE_NGAP_STRUCT_LOCK:
+            # pylint: disable=protected-access
+            return self._content._codec.replace('-', '_')
 
     @property
     def possible_sizes(self) -> list[int]:
@@ -417,7 +422,8 @@ class BaseStringType(SequenceType):
     def alphabet(self) -> str | None:
         """The specific alphabet used for this string type."""
 
-        return getattr(self._content, '_ALPHA_RE', default=None)
+        with PYCRATE_NGAP_STRUCT_LOCK:
+            return getattr(self._content, '_ALPHA_RE', default=None)
 
 
 @mutable

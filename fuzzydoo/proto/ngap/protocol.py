@@ -15,12 +15,6 @@ class NGAPProtocol(CapabilityProtocol):
     This class provides methods and attributes specific to the NGAP protocol, facilitating
     the management of various procedures such as PDU session management, UE context management,
     UE mobility management, and more.
-
-    Attributes:
-        name: The name of the protocol. Is set to `"NGAP"`.
-        root: The root node of the protocol graph.
-        actors: The names of all actors involved in the protocol.
-        capabilities: The list of possible capability values in the protocol.
     """
 
     def __init__(self):
