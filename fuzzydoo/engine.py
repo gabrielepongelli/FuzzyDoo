@@ -30,26 +30,47 @@ class Engine:
     agents, encoders, decoders, and result storage. It also provides methods to start the fuzzing
     process, calculate runtime and execution speed, and handle target system restarts.
 
-    Attributes:
-        main_seed: Seed value used for randomization.
-        protocol: Protocol to be fuzzed.
-        actor: Name of the actor in the protocol to act as.
-        actors: Mapping of each protocol's actor with the related `Publisher` to use.
-        encoders: List of encoders to be used during the fuzzing process.
-        decoders: List of decoders to be used during the fuzzing process.
-        findings_dir_path: Path to the directory where findings will be stored.
-        max_attempts_of_test_redo: Maximum number of attempts to re-perform a test case.
-        max_test_cases_per_epoch: Maximum number of test cases to be executed per epoch.
-        stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a 
-            vulnerability.
-        wait_time_before_test_end: Time to wait before terminating a single test in case no message
-            is received by `source` or by `target` (in seconds).
-        start_time: Time since epoch taken at the beginning of a run.
-        end_time: Time since epoch taken at the end of a run.
-
-
     Todo: add an example once everything is done properly.
     """
+
+    main_seed: int
+    """Seed value used for randomization."""
+
+    protocol: Protocol
+    """Protocol to be fuzzed."""
+
+    actor: str
+    """Name of the actor in the protocol to act as."""
+
+    actors: dict[str, Publisher]
+    """Mapping of each protocol's actor with the related `Publisher` to use."""
+
+    encoders: list[Encoder]
+    """List of encoders."""
+
+    decoders: list[Decoder]
+    """List of decoders."""
+
+    findings_dir_path: pathlib.Path | None
+    """Path to the directory where findings will be stored."""
+
+    max_attempts_of_test_redo: int
+    """Maximum number of attempts to re-perform a test case."""
+
+    max_test_cases_per_epoch: int
+    """Maximum number of test cases to be executed per epoch."""
+
+    stop_on_find: bool
+    """Flag indicating whether to stop the fuzzing epoch upon finding a vulnerability."""
+
+    wait_time_before_test_end: int
+    """Seconds to wait before terminating a single test in case no message is received."""
+
+    start_time: float | None
+    """Time since epoch taken at the beginning of a run."""
+
+    end_time: float | None
+    """Time since epoch taken at the end of a run."""
 
     def __init__(self,
                  main_seed: int,
@@ -85,50 +106,19 @@ class Engine:
                 message is received by `source` or by `target` (in seconds).
         """
 
-        self.main_seed: int = main_seed
-        """Seed value used for randomization."""
-
-        self.protocol: Protocol = protocol
-        """Protocol to be fuzzed."""
-
-        self.actor: str = actor
-        """Name of the actor in the protocol to act as."""
-
-        self.actors: dict[str, Publisher] = actors
-        """Mapping of each protocol's actor with the related `Publisher` to use."""
-
-        self.encoders: list[Encoder] = encoders
-        """List of encoders."""
-
-        self.decoders: list[Decoder] = decoders
-        """List of decoders."""
-
-        self._agent: AgentMultiplexer = AgentMultiplexer()
-        """Mux of agents to use."""
-
-        for a in agents:
-            self._agent.add_agent(a)
-
-        self.findings_dir_path: pathlib.Path | None = findings_dir_path
-        """Path to the directory where findings will be stored."""
-
-        self.max_attempts_of_test_redo: int = max_attempts_of_test_redo
-        """Maximum number of attempts to re-perform a test case."""
-
-        self.max_test_cases_per_epoch: int = max_test_cases_per_epoch
-        """Maximum number of test cases to be executed per epoch."""
-
-        self.stop_on_find: bool = stop_on_find
-        """Flag indicating whether to stop the fuzzing epoch upon finding a vulnerability."""
-
-        self.wait_time_before_test_end: int = wait_time_before_test_end
-        """Seconds to wait before terminating a single test in case no message is received."""
-
-        self.start_time: float | None = None
-        """Time since epoch taken at the beginning of a run."""
-
-        self.end_time: float | None = None
-        """Time since epoch taken at the end of a run."""
+        self.main_seed = main_seed
+        self.protocol = protocol
+        self.actor = actor
+        self.actors = actors
+        self.encoders = encoders
+        self.decoders = decoders
+        self.findings_dir_path = findings_dir_path
+        self.max_attempts_of_test_redo = max_attempts_of_test_redo
+        self.max_test_cases_per_epoch = max_test_cases_per_epoch
+        self.stop_on_find = stop_on_find
+        self.wait_time_before_test_end = wait_time_before_test_end
+        self.start_time = None
+        self.end_time = None
 
         self._logger: logging.Logger = logging.getLogger('Engine')
         """Logger instance to use."""
@@ -141,6 +131,12 @@ class Engine:
         else:
             self._logger.info("Created findings directory %s",
                               self.findings_dir_path)
+
+        self._agent: AgentMultiplexer = AgentMultiplexer()
+        """Mux of agents to use."""
+
+        for a in agents:
+            self._agent.add_agent(a)
 
         self._current_epoch: int | None = None
         """Current epoch in the fuzzing process."""
@@ -168,11 +164,7 @@ class Engine:
 
     @property
     def runtime(self) -> float:
-        """Calculate the total runtime of the fuzzing engine.
-
-        Returns:
-            The total runtime of the fuzzing engine in seconds, or `0.0` if no run was started.
-        """
+        """The total runtime of the fuzzing engine in seconds, or `0.0` if no run was started."""
 
         if self.start_time is None:
             return 0.0
@@ -185,13 +177,10 @@ class Engine:
 
     @property
     def exec_speed(self) -> float:
-        """Calculate the execution speed of the fuzzing engine.
+        """The execution speed of the fuzzing engine in cases per second.
 
         The execution speed is calculated by dividing the number of cases actually fuzzed by the 
         total runtime of the fuzzing engine.
-
-        Returns:
-            The execution speed of the fuzzing engine in cases per second.
         """
 
         rt = self.runtime
@@ -464,21 +453,6 @@ class Engine:
         return success
 
     def _produce_case_report(self, path: ProtocolPath, mutation: tuple[Mutation, str], original_data: Fuzzable) -> bytes:
-        """Produce a report for a single test case.
-
-        This function generates a report for a single test case. The report includes:
-
-
-        Args:
-            path: Path in the protocol that has been fuzzed.
-            mutation: The mutation to be reported.
-            original_data: The original data before the mutation.
-
-        Returns:
-            A bytes object containing the report.
-        """
-
-    def _produce_case_report(self, path: ProtocolPath, mutation: tuple[Mutation, str], original_data: Fuzzable) -> bytes:
         """Generate a detailed report for a single test case in YAML format.
 
         This method creates a comprehensive report containing information about the current run, 
@@ -660,7 +634,11 @@ class Engine:
             return False, False
 
         try:
-            self._test_case_setup(ExecutionContext(self.protocol.name, path))
+            ctx = ExecutionContext(self.protocol.name, path)
+            if mutation is not None:
+                ctx.mutation_path = mutation[1]
+                ctx.mutator = mutation[0].mutator.__name__
+            self._test_case_setup(ctx)
         except SetupFailedError as e:
             self._logger.error("%s", str(e))
             self._logger.error("Test case setup failed")
@@ -740,10 +718,9 @@ class Engine:
                             mutations_generated = True
                         else:
                             # apply the mutation
-                            self._logger.debug("Applying mutation")
+                            self._logger.debug("Applying mutation %s to '%s'", mutation[0], mutation[1])
                             data_to_mutate = decoded_msg.get_content(mutation[1])
-                            mutated_data = mutation[0].apply(data_to_mutate)
-                            decoded_msg.set_content(mutation[1], mutated_data)
+                            mutation[0].apply(data_to_mutate)
                             self._logger.debug("Mutated data %s", decoded_msg.raw())
 
                             encoded_msg = decoded_msg
@@ -757,6 +734,11 @@ class Engine:
 
                             data = encoded_msg.raw()
                             self._logger.debug("Encoded data %s", data)
+                            if encoded_msg.delay > 0:
+                                time.sleep(encoded_msg.delay)
+
+                            if encoded_msg.n_replay > 1:
+                                data = data * encoded_msg.n_replay
 
                     if not mutations_generated:
                         # send the message data to the destination publisher

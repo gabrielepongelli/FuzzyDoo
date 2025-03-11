@@ -20,11 +20,13 @@ class Message(Fuzzable, Generic[InnerT]):
 
     A `Message` is the content of the nodes of the protocol graph. It is also a `Fuzzable` entity 
     with the property that it has no parent.
-
-    Attributes:
-        delay: The number of seconds to wait before sending the message.
-        n_replay: The number of copies of this message to send.
     """
+
+    delay: int
+    """The number of seconds to wait before sending the message."""
+
+    n_replay: int
+    """The number of copies of this message to send."""
 
     @classmethod
     def from_name(cls, protocol: str, name: str, *args, **kwargs) -> "Message":
@@ -62,9 +64,9 @@ class Message(Fuzzable, Generic[InnerT]):
         self._name: str = name if name else self.__class__.__name__
         self._protocol: str = protocol
 
-        self._content: Any | None = content
-        self.delay: int = delay
-        self.n_replay: int = n_replay
+        self._content: InnerT | None = content
+        self.delay = delay
+        self.n_replay = n_replay
 
     @property
     def initialized(self) -> bool:
@@ -75,22 +77,23 @@ class Message(Fuzzable, Generic[InnerT]):
     @override
     @property
     def name(self) -> str:
-        """Get the name of the message."""
+        """The name of the message."""
 
         return self._name
 
     @property
     def protocol(self) -> str:
-        """Get the name of the protocol to which this message belongs."""
+        """The name of the protocol to which this message belongs."""
 
         return self._protocol
 
     @property
     def content(self) -> Any | None:
-        """Get the content of the message."""
+        """The content of the message."""
 
         return self._content
 
+    @override
     @property
     def parent(self) -> Fuzzable | None:
         return None
@@ -133,18 +136,16 @@ class ProtocolNode(Node):
 
 @dataclass
 class MessageNode(Node):
-    """A graph node that contains a message.
-
-    Attributes:
-        id: The unique identifier for the node.
-        msg: The message contained by this node.
-        src: The name of the actor that sends `msg`.
-        dst: The name of the actor that receives `msg`.
-    """
+    """A graph node that contains a message."""
 
     src: str
+    """The name of the actor that sends `msg`."""
+
     dst: str
+    """The name of the actor that receives `msg`."""
+
     msg: Message
+    """The message contained by this node."""
 
 
 class EdgeTag(Flag):
@@ -189,16 +190,10 @@ class EdgeTag(Flag):
 
 @dataclass
 class ProtocolEdge(Edge[ProtocolNode]):
-    """A graph edge specific for the `Protocol` class .
-
-    Attributes:
-        id: The unique identifier for the edge.
-        src: The source node of the edge.
-        dst: The destination node of the edge.
-        tags: Tags for the edge which describe the relationship between `src` and `dst`.
-    """
+    """A graph edge specific for the `Protocol` class."""
 
     tags: EdgeTag
+    """Tags for the edge which describe the relationship between `src` and `dst`."""
 
     def __init__(self, src: ProtocolNode, dst: ProtocolNode, tags: EdgeTag):
         """Initializes a new instance of the `ProtocolEdge` class .
@@ -223,15 +218,15 @@ class ProtocolPath(Path[ProtocolNode, ProtocolEdge]):
     An iteration over an instance of this class returns all the messages in the path that are 
     either sent by or received from the actor specified. All the other messages are skipped. The 
     last message of the path is always sent by the actor specified.
-
-    Attributes:
-        path: The list of edges that make up the path.
-        pos: The position of the edge in `path` whose `dst` node is the current node, or `None` if 
-            the iteration isn't started yet.
-        actor: The name of the actor to be used in the path. If is `None`, then an iteration over 
-            this an instance of this class returns all the nodes in the path regardless of who 
-            sent/received them.
     """
+
+    pos: int | None
+    """The position of the edge in `path` whose `dst` node is the current node, or `None` if the 
+    iteration isn't started yet."""
+
+    actor: str | None
+    """The name of the actor to be used in the path. If is `None`, then an iteration over this an 
+    instance of this class returns all the nodes in the path regardless of who sent/received them."""
 
     def __init__(self, path: list[ProtocolEdge], actor: str | None = None):
         """Initializes a new instance of the `ProtocolPath` class .
@@ -243,17 +238,17 @@ class ProtocolPath(Path[ProtocolNode, ProtocolEdge]):
 
         super().__init__(path)
 
-        self.pos: int | None = None
-        self.actor: str | None = actor
+        self.pos = None
+        self.actor = actor
 
     @property
     def names(self) -> list[str]:
-        """Get the names of the messages inside the path."""
+        """The names of the messages inside the path."""
 
         res = []
         for edge in self.path:
             if isinstance(edge.dst, MessageNode) \
-                    and (self.actor is None or self.actor in (edge.dst.src, edge.dst.dst)):
+                    and (self.actor is None or self.actor in {edge.dst.src, edge.dst.dst}):
                 res.append(edge.dst.msg.name)
         return res
 
@@ -266,7 +261,7 @@ class ProtocolPath(Path[ProtocolNode, ProtocolEdge]):
         for pos, edge in enumerate(self.path):
             self.pos = pos
             if isinstance(edge.dst, MessageNode) \
-                    and (self.actor is None or self.actor in (edge.dst.src, edge.dst.dst)):
+                    and (self.actor is None or self.actor in {edge.dst.src, edge.dst.dst}):
                 yield edge.dst
         self.pos = None
 
@@ -282,12 +277,16 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge, ProtocolPath]):
     are uniquely identified by their names and characterize each message in the protocol. More
     precisely, for each message in the protocol must be specified the name of the actor that sends
     the message and the actor that receives the message.
-
-    Attributes:
-        name: The name of the protocol.
-        root: The root node of the protocol graph.
-        actors: The names of all the actors involved in the protocol.
     """
+
+    name: str
+    """The name of the protocol."""
+
+    root: ProtocolNode
+    """The root node of the protocol graph."""
+
+    actors: list[str]
+    """The names of all the actors involved in the protocol."""
 
     @classmethod
     def from_name(cls, name: str) -> "Protocol":
@@ -317,9 +316,9 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge, ProtocolPath]):
 
         super().__init__()
 
-        self.name: str = name
-        self.root: ProtocolNode = self.create_dummy()
-        self.actors: list[str] = []
+        self.name = name
+        self.root = self.create_dummy()
+        self.actors = []
 
     @override
     def add_node(self, node: ProtocolNode):

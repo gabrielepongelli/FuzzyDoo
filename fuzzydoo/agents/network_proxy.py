@@ -14,7 +14,7 @@ from collections.abc import Callable
 from threading import Lock
 
 import sctp
-import pycrate_asn1dir.NGAP as ngap
+from pycrate_asn1dir import NGAP as ngap
 from pycrate_mobile.NAS5G import parse_NAS5G
 from pycrate_core.utils import PycrateErr
 
@@ -25,6 +25,7 @@ from ..publisher import Publisher
 from ..agent import Agent, ExecutionContext
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread
 from ..utils.register import register
+from ..utils.network import PYCRATE_NGAP_STRUCT_LOCK
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 from ..utils.errs import *
@@ -51,10 +52,6 @@ _NGAP_RELEVANT_IE_PATHS: dict[str, Callable[[dict], list[str | int] | None]] = {
                 else None),
     'NASC': lambda ie: ['value', ie['value'][0]],
 }
-
-PYCRATE_NGAP_STRUCT_LOCK: Lock = Lock()
-"""Thread lock reserved for pycrate's NGAP structures, which are not thread-safe (unlike NAS 
-structures). See [this](https://github.com/pycrate-org/pycrate/wiki/Compiling-asn1-specifications#limitations)."""
 
 
 def extract_from_ngap(data: bytes) -> tuple[bytes, list | None]:
@@ -169,15 +166,15 @@ def extract_from_nas_mm(data: bytes, decipher: NASSecurity, src: str, dst: str) 
         try:
             msg = Message.from_name('NAS-MM', nas_pdu.__class__.__name__ + 'Message')
             msg = msg.parse(data)
-        except (MessageParsingError, UnknownMessageError) as e:
+        except (MessageParsingError, UnknownMessageError):
             return data, None
 
     try:
         msg = decipher.decode(msg, src, dst)
-    except DecodingError as e:
+    except DecodingError:
         return data, None
 
-    if msg.name != 'FGMMULNASTransportMessage' and msg.name != 'FGMMDLNASTransportMessage':
+    if msg.name not in {'FGMMULNASTransportMessage', 'FGMMDLNASTransportMessage'}:
         return data, None
 
     return msg.content['PayloadContainer']['V'], msg
@@ -238,12 +235,16 @@ class EndpointReceiverThread(EventStoppableThread, ExceptionRaiserThread, Generi
     This class extends `EventStoppableThread` and `ExceptionRaiserThread` to provide controlled
     execution and error handling capabilities. It continuously reads data from the assigned
     socket and places it into a queue for further processing.
-
-    Attributes:
-        socket: The socket from which data will be read.
-        queue: A thread-safe queue where received data packets are stored.
-        sender_queue: A thread-safe queue whose inner elements are sent by the sender thread.
     """
+
+    socket: SocketT | None
+    """The socket from which data will be read."""
+
+    queue: Queue
+    """A thread-safe queue where received data packets are stored."""
+
+    sender_queue: Queue | None
+    """A thread-safe queue whose inner elements are sent by the sender thread."""
 
     def __init__(self, sock: SocketT | None = None, sender_queue: Queue | None = None):
         """Initialize a new `EndpointReceiverThread` instance.
@@ -255,14 +256,9 @@ class EndpointReceiverThread(EventStoppableThread, ExceptionRaiserThread, Generi
 
         super().__init__()
 
-        self.socket: SocketT | None = sock
-        """The socket from which data will be read."""
-
-        self.queue: Queue = Queue()
-        """A thread-safe queue where received data packets are stored."""
-
-        self.sender_queue: Queue | None = sender_queue
-        """A thread-safe queue whose inner elements are sent by the sender thread."""
+        self.socket = sock
+        self.queue = Queue()
+        self.sender_queue = sender_queue
 
     @abstractmethod
     def _recv(self, size: int) -> bytes:
@@ -356,6 +352,12 @@ class NASMMEndpointReceiverThread(NGAPEndpointReceiverThread):
     received NAS-MM data, ensuring secure communication between endpoints.
     """
 
+    transformer: NASSecurity | None
+    """The NAS security transformer to be applied to the received data."""
+
+    transformer_lock: Lock | None
+    """The lock for multithreading access to `transformer`."""
+
     def __init__(self, sock: SocketT | None = None, sender_queue: Queue | None = None, entity: str | None = None, transformer: tuple[NASSecurity, Lock] | None = None):
         """Initialize a new `NASMMEndpointReceiverThread` instance.
 
@@ -369,7 +371,7 @@ class NASMMEndpointReceiverThread(NGAPEndpointReceiverThread):
 
         super().__init__(sock, sender_queue)
 
-        self.transformer: NASSecurity | None = transformer[0] if transformer else None
+        self.transformer = transformer[0] if transformer else None
         self.transformer_lock: Lock | None = transformer[1] if transformer else None
         self._name: str | None = None
         self._dst_name: str | None = None
@@ -407,11 +409,13 @@ class EndpointSenderThread(EventStoppableThread, ExceptionRaiserThread, Generic[
     This class extends `EventStoppableThread` and `ExceptionRaiserThread` to provide controlled
     execution and error handling capabilities. It continuously takes data from a queue and sends it
     through the assigned socket.
-
-    Attributes:
-        socket: The socket through which data will be sent.
-        queue: A thread-safe queue from which data packets to be sent are taken.
     """
+
+    socket: SocketT | None
+    """The socket through which data will be sent."""
+
+    queue: Queue
+    """A thread-safe queue from which data packets to be sent are taken."""
 
     def __init__(self, sock: SocketT | None = None):
         """Initialize a new `EndpointSenderThread` instance.
@@ -422,11 +426,8 @@ class EndpointSenderThread(EventStoppableThread, ExceptionRaiserThread, Generic[
 
         super().__init__()
 
-        self.socket: SocketT | None = sock
-        """The socket through which data will be sent."""
-
-        self.queue: Queue = Queue()
-        """A thread-safe queue from which data packets to be sent are taken."""
+        self.socket = sock
+        self.queue = Queue()
 
     @abstractmethod
     def _send(self, data: bytes):
@@ -508,6 +509,15 @@ class ProxyEndpoint(Publisher, Generic[SocketT], ABC):
     This class handles the arrival and delivery of data from one endpoint of the network proxy.
     """
 
+    name: str
+    """Name of this entpoint."""
+
+    socket: SocketT | None
+    """Socket for this endpoint."""
+
+    is_error_recoverable: bool
+    """Whether the error, if any, is recoverable or not."""
+
     def __init__(self, name: str, sock: SocketT | None = None):
         """Initialize a new `ProxyEndpoint` instance.
 
@@ -516,15 +526,9 @@ class ProxyEndpoint(Publisher, Generic[SocketT], ABC):
             socket (optional): The socket for this endpoint. Defaults to `None`.
         """
 
-        self.name: str = name
-        """Name of this entpoint."""
-
-        self.socket: SocketT | None = sock
-        """Socket for this endpoint."""
-
-        self.is_error_recoverable: bool = True
-        """Whether the error, if any, is recoverable or not."""
-
+        self.name = name
+        self.socket = sock
+        self.is_error_recoverable = True
         self._sender, self._receiver = self._get_communication_threads()
 
     @abstractmethod
@@ -545,7 +549,7 @@ class ProxyEndpoint(Publisher, Generic[SocketT], ABC):
 
     @property
     def send_queue(self) -> Queue | None:
-        """Get the sender queue."""
+        """The sender queue."""
 
         if self._sender is None:
             return None
@@ -553,7 +557,7 @@ class ProxyEndpoint(Publisher, Generic[SocketT], ABC):
 
     @property
     def recv_queue(self) -> Queue | None:
-        """Get the receiver queue."""
+        """The receiver queue."""
 
         if self._receiver is None:
             return None
@@ -616,7 +620,7 @@ class ProxyEndpoint(Publisher, Generic[SocketT], ABC):
 
     @property
     def is_running(self) -> bool:
-        """Check if the current endpoint is running."""
+        """Whether the current endpoint is running or not."""
 
         return self._sender is not None \
             and self._receiver is not None \
@@ -735,6 +739,9 @@ class SCTPProxyEndpoint(ProxyEndpoint[SctpSocketT]):
     protocol.
     """
 
+    endpoint_send_queue: Queue
+    """The queue used by the other endpoint to send data."""
+
     def __init__(self, name: str, sock: SocketT | None = None, endpoint_send_queue: Queue | None = None):
         """Initialize a new `SCTPProxyEndpoint` instance.
 
@@ -747,8 +754,7 @@ class SCTPProxyEndpoint(ProxyEndpoint[SctpSocketT]):
 
         super().__init__(name, sock)
 
-        self.endpoint_send_queue: Queue = endpoint_send_queue if endpoint_send_queue is not None else Queue()
-        """The queue used by the other endpoint to send data."""
+        self.endpoint_send_queue = endpoint_send_queue if endpoint_send_queue is not None else Queue()
 
     @override
     def _get_communication_threads(self) -> tuple[SCTPEndpointSenderThread, SCTPEndpointReceiverThread]:
@@ -793,6 +799,9 @@ class NGAPProxyEndpoint(SCTPProxyEndpoint):
     handling for sending and receiving NGAP data over an SCTP connection.
     """
 
+    ngap_queue: Queue
+    """The queue used to store original NGAP messages to be sent."""
+
     def __init__(self, name: str, sock: SocketT | None = None, endpoint_send_queue: Queue | None = None, ngap_queue: Queue | None = None):
         """Initialize a new `NGAPProxyEndpoint` instance.
 
@@ -807,8 +816,7 @@ class NGAPProxyEndpoint(SCTPProxyEndpoint):
 
         super().__init__(name, sock, endpoint_send_queue)
 
-        self.ngap_queue: Queue = ngap_queue if ngap_queue is not None else Queue()
-        """The queue used to store original NGAP messages to be sent."""
+        self.ngap_queue = ngap_queue if ngap_queue is not None else Queue()
 
     @override
     def _get_communication_threads(self) -> tuple[NGAPEndpointSenderThread, NGAPEndpointReceiverThread]:
@@ -841,6 +849,9 @@ class NASMMProxyEndpoint(NGAPProxyEndpoint):
     specialized handling for sending and receiving NAS-MM data over an NGAP connection.
     """
 
+    nas_queue: Queue
+    """The queue used to store original NAS messages to be sent."""
+
     def __init__(self, name: str, transformer: tuple[NASSecurity, Lock], sock: SocketT | None = None, endpoint_send_queue: Queue | None = None, ngap_queue: Queue | None = None, nas_queue: Queue | None = None):
         """Initialize a new `NASMMProxyEndpoint` instance.
 
@@ -865,8 +876,7 @@ class NASMMProxyEndpoint(NGAPProxyEndpoint):
         self._tr_lock: Lock = transformer[1]
         """Lock for the access to `_tr`."""
 
-        self.nas_queue: Queue = nas_queue if nas_queue is not None else Queue()
-        """The queue used to store original NAS messages to be sent."""
+        self.nas_queue = nas_queue if nas_queue is not None else Queue()
 
         self._src_name: str = 'AMF' if name == PUBLISHER_TARGET_NAME else 'UE'
         """The value of `src` for the `extract_from_nas_mm` function."""
@@ -916,14 +926,25 @@ class NetworkProxy(EventStoppableThread, ExceptionRaiserThread, Generic[SocketT]
     It allows for the forwarding of data between two network endpoints, enabling the capture and
     manipulation of packets. It can be started and stopped programmatically using the `start()` and
     `stop()` methods, respectively.
-
-    Attributes:
-        listen_ip: The IP address where the proxy will listen for incoming connections.
-        listen_port: The port number where the proxy will listen for incoming connections.
-        forward_from_ip: The IP address from which the proxy will forward data.
-        forward_to_ip: The IP address to which the proxy will forward data.
-        forward_to_port: The port number to which the proxy will forward data.
     """
+
+    listen_ip: str | None
+    """IP address where the proxy will listen for incoming connections."""
+
+    listen_port: int | None
+    """Port number where the proxy will listen for incoming connections."""
+
+    forward_from_ip: str | None
+    """IP address from which the proxy will forward data."""
+
+    forward_to_ip: str | None
+    """IP address to which the proxy will forward data."""
+
+    forward_to_port: int | None
+    """Port number to which the proxy will forward data."""
+
+    fault_detected: bool
+    """Flag indicating whether a fault has been detected."""
 
     def __init__(self,
                  listen_ip: str,
@@ -943,20 +964,12 @@ class NetworkProxy(EventStoppableThread, ExceptionRaiserThread, Generic[SocketT]
 
         super().__init__()
 
-        self.listen_ip: str | None = listen_ip
-        """IP address where the proxy will listen for incoming connections."""
-
-        self.listen_port: int | None = listen_port
-        """Port number where the proxy will listen for incoming connections."""
-
-        self.forward_from_ip: str | None = forward_from_ip
-        """IP address from which the proxy will forward data."""
-
-        self.forward_to_ip: str | None = forward_to_ip
-        """IP address to which the proxy will forward data."""
-
-        self.forward_to_port: int | None = forward_to_port
-        """Port number to which the proxy will forward data."""
+        self.listen_ip = listen_ip
+        self.listen_port = listen_port
+        self.forward_from_ip = forward_from_ip
+        self.forward_to_ip = forward_to_ip
+        self.forward_to_port = forward_to_port
+        self.fault_detected = False
 
         # socket listening for incoming connections
         self._server_socket: SocketT | None = None
@@ -979,26 +992,20 @@ class NetworkProxy(EventStoppableThread, ExceptionRaiserThread, Generic[SocketT]
 
     @property
     def source(self) -> Publisher:
-        """Get the source endpoint of the network proxy.
+        """The source endpoint of the network proxy.
 
         The source endpoint is responsible for receiving data from and sending data to the client
         connecting to the network proxy.
-
-        Returns:
-            Publisher: An instance of `Publisher` representing the source endpoint.
         """
 
         return self._source
 
     @property
     def target(self) -> Publisher:
-        """Get the target endpoint of the network proxy.
+        """The target endpoint of the network proxy.
 
         The target endpoint is responsible for receiving data from and sending data to the server
         to which the network proxy forwards data to.
-
-        Returns:
-            Publisher: An instance of `Publisher` representing the target endpoint.
         """
 
         return self._target
@@ -1066,8 +1073,12 @@ class NetworkProxy(EventStoppableThread, ExceptionRaiserThread, Generic[SocketT]
             time.sleep(0.1)
 
         # close the connections and reset the endpoints
-        self._target.stop()
-        self._source.stop()
+        try:
+            self._target.stop()
+            self._source.stop()
+        except PublisherOperationError:
+            self.fault_detected = True
+
         self._source.socket = self._target.socket = None
         self._forward_socket.close()
         connection_socket.close()
@@ -1405,10 +1416,6 @@ class NetworkProxyAgent(GrpcClientAgent):
         return False
 
     @override
-    def fault_detected(self) -> bool:
-        return False
-
-    @override
     def on_fault(self):
         return
 
@@ -1440,6 +1447,9 @@ class NetworkProxyServerAgent(GrpcServerAgent):
         'listen_ip', 'listen_port', 'forward_from_ip', 'forward_to_ip', 'forward_to_port',
         'op', 'op_type', 'key', 'mcc', 'mnc', 'supi']
 
+    options: dict[str, str | int | None]
+    """Options currently set on the agent."""
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -1448,6 +1458,8 @@ class NetworkProxyServerAgent(GrpcServerAgent):
 
         self.options = dict(self.DEFAULT_OPTIONS)
         self.set_options(**kwargs)
+
+        self._fault_detected: bool = False
 
     @override
     def set_options(self, **kwargs):
@@ -1498,6 +1510,7 @@ class NetworkProxyServerAgent(GrpcServerAgent):
         self.options = dict(self.DEFAULT_OPTIONS)
         self._proxy = None
         self._publisher_map = {}
+        self._fault_detected = False
 
     @override
     def on_test_start(self, ctx: ExecutionContext):
@@ -1533,10 +1546,20 @@ class NetworkProxyServerAgent(GrpcServerAgent):
     @override
     def on_test_end(self):
         self._publisher_map = {}
+
+        if self._proxy is None:
+            return
+
         self._proxy.join()
+
+        self._fault_detected = self._proxy.fault_detected
 
         if self._proxy.is_error_occurred:
             raise self._proxy.exception
+
+    @override
+    def fault_detected(self) -> bool:
+        return self._fault_detected
 
     @override
     def redo_test(self) -> bool:

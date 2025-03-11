@@ -70,6 +70,32 @@ class NASSecurity(Encoder, Decoder):
         self._k_nas_int: bytes | None = None
         """NAS integrity key."""
 
+    @property
+    def ciphering_algorithm(self) -> int | None:
+        """The selected ciphering algorithm (if already selected)."""
+
+        return self._ciph_alg
+
+    @property
+    def integrity_algorithm(self) -> int | None:
+        """The selected integrity algorithm (if already selected)."""
+
+        return self._integ_alg
+
+    @property
+    def k_nas_enc(self) -> bytes | None:
+        """The shared symmetric key to use for encryption and decryption operations (if already 
+        calculated)"""
+
+        return self._k_nas_enc
+
+    @property
+    def k_nas_int(self) -> bytes | None:
+        """The shared symmetric key to use for integrity verification and calculation (if already 
+        calculated)"""
+
+        return self._k_nas_int
+
     @override
     def reset(self):
         self._k_amf = None
@@ -175,7 +201,7 @@ class NASSecurity(Encoder, Decoder):
         sec_header = msg.content['5GMMHeaderSec']
         seqn = msg.content['Seqn']
 
-        if sec_header['SecHdr'] in (2, 4):
+        if sec_header['SecHdr'] in {2, 4}:
             try:
                 # pylint: disable=protected-access
                 direction = 0 if src == 'UE' else 1
@@ -240,7 +266,7 @@ class NASSecurity(Encoder, Decoder):
             return msg
 
         # pylint: disable=protected-access
-        encrypted: bool = msg._sec_header['SecHdr'] in (2, 4)
+        encrypted: bool = msg._sec_header['SecHdr'] in {2, 4}
         integrity_protected: bool = msg._sec_header['SecHdr'] != 0
 
         final_msg = msg

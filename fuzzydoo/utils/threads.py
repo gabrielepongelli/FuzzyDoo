@@ -10,9 +10,6 @@ class EventStoppableThread(threading.Thread):
     attribute. This event can be used to signal the thread to stop its execution in a controlled 
     manner, allowing for more graceful termination of long-running or looping threads.
 
-    Attributes:
-        stop_event: An event object that, when set, signals the thread to stop.
-
     Usage:
         Subclass `EventStoppableThread` and implement the `run` method. Within the `run` method,
         periodically check the `stop_event` (e.g., `if self.stop_event.is_set(): break`) to 
@@ -31,6 +28,9 @@ class EventStoppableThread(threading.Thread):
         >>> # ... do some work ...
         >>> thread.join()  # This will stop the thread gracefully
     """
+
+    stop_event: threading.Event
+    """An event object that, when set, signals the thread to stop."""
 
     def __init__(self):
         """Initializes an instance of `EventStoppableThread`.
@@ -58,10 +58,6 @@ class ExceptionRaiserThread(threading.Thread):
     This class extends the standard `threading.Thread` class by adding functionality to capture
     and store exceptions that occur during the thread's execution. It allows for more graceful
     error handling and provides a way to check if an error occurred and retrieve the exception.
-
-    Attributes:
-        exception: Stores the exception if one occurs during thread execution.
-        is_error_recoverable: Indicates whether the error that occurred is recoverable.
 
     Usage:
         Subclass `ExceptionRaiserThread` and implement the `handled_run` method. After starting
@@ -91,20 +87,23 @@ class ExceptionRaiserThread(threading.Thread):
         >>>     print("Thread completed successfully")
     """
 
+    exception: Exception | None
+    """Exception that occurs during thread execution, or `None` if no exception is raised."""
+
+    is_error_recoverable: bool
+    """Whether an error that occurred is recoverable or not."""
+
     def __init__(self):
         """Initialize an `ExceptionRaiserThread` instance."""
 
         super().__init__()
 
-        self.exception: Exception | None = None
-        """Exception that occurs during thread execution, or `None` if no exception is raised."""
-
-        self.is_error_recoverable: bool = True
-        """Whether an error that occurred is recoverable or not."""
+        self.exception = None
+        self.is_error_recoverable = True
 
     @property
     def is_error_occurred(self) -> bool:
-        """Check if an error has occurred."""
+        """Whether an error has occurred or not."""
 
         return self.exception is not None
 

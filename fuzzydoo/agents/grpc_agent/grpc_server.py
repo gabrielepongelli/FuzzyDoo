@@ -13,12 +13,7 @@ from ...utils.errs import *
 
 
 class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
-    """A gRPC server representing a remote agent.
-
-    Attributes:
-        server: The gRPC server instance. This can be used inside a method of the `Agent` class to 
-            stop the execution of the server with `server.stop()`.
-    """
+    """A gRPC server representing a remote agent."""
 
     def __init__(self, name: str | None = None, /, **kwargs):
         """Initialize an `GrpcServerAgent` instance with the provided arguments.
@@ -27,9 +22,9 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
             name (optional): The name of the agent. If is not provided, the name of the class will 
                 be used. Defaults to `None`.
             kwargs: Additional parameters. It must contain the following keys:
-                'address': A string representing the IP address on which the gRPC server should 
-                    listen.
-                'port': A number representing the port the gRPC server should listen on.
+                - `'address'`: A string representing the IP address on which the gRPC server should 
+                        listen.
+                - `'port'`: A number representing the port the gRPC server should listen on.
         """
 
         super().__init__(name)
@@ -41,6 +36,8 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         self._address: str = kwargs['address']
         self._port: int = kwargs['port']
         self.server = grpc.server(ThreadPoolExecutor(max_workers=1))
+        """The gRPC server instance. This can be used inside a method of the `Agent` class to stop 
+        the execution of the server with `server.stop()`."""
 
         agent_pb2_grpc.add_AgentServiceServicer_to_server(
             self, self.server)

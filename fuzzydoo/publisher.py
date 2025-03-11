@@ -113,7 +113,7 @@ class PublisherSource:
 
     @property
     def actors(self) -> list[str]:
-        """Get the list of actors associated with this publisher source."""
+        """The list of actors associated with this publisher source."""
 
         return []
 

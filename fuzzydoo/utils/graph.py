@@ -5,13 +5,10 @@ from collections.abc import Callable, Iterator
 
 @dataclass
 class Node:
-    """This class represents a node in a graph data structure.
-
-    Attributes:
-        id: The unique identifier for the node.
-    """
+    """This class represents a node in a graph data structure."""
 
     id: int
+    """The unique identifier for the node."""
 
     def __eq__(self, value: object) -> bool:
         return isinstance(value, Node) and value.id == self.id
@@ -25,25 +22,27 @@ class Edge(Generic[NodeT]):
     """This class represents an edge in a graph data structure.
 
     This class represents an edge that connects the node `src` to the node `dst`.
-
-    Attributes:
-        id: The unique identifier for the node.
-        src: The source node of the edge.
-        dst: The destination node of the edge.
     """
+
+    id: int
+    """The unique identifier for the node."""
+
+    src: NodeT
+    """The source node of the edge."""
+
+    dst: NodeT
+    """The destination node of the edge."""
 
     @classmethod
     def calculate_id(cls, src: int, dst: int) -> int:
-        """_summary_
-
-        _extended_summary_
+        """Calculate a unique identifier for an edge based on its source and destination node IDs.
 
         Args:
-            src (int): _description_
-            dst (int): _description_
+            src: The ID of the source node.
+            dst: The ID of the destination node.
 
         Returns:
-            int: _description_
+            int: A unique identifier for the edge, combining source and destination node IDs.
         """
 
         return (src << 32) + dst
@@ -61,9 +60,9 @@ class Edge(Generic[NodeT]):
             dst: The destination node of the edge.
         """
 
-        self.id: int = self.calculate_id(src.id, dst.id)
-        self.src: NodeT = src
-        self.dst: NodeT = dst
+        self.id = self.calculate_id(src.id, dst.id)
+        self.src = src
+        self.dst = dst
 
     def __eq__(self, value: object) -> bool:
         return isinstance(value, Edge[NodeT]) and value.id == self.id
@@ -78,11 +77,10 @@ class Path(Generic[NodeT, EdgeT]):
     The `Path` class is a collection of edges that connect nodes in a specific 
     order. It provides methods to iterate over the path and retrieve the next 
     node in the path.
-
-
-    Attributes:
-        path: A list of edges that make up the path.
     """
+
+    path: list[EdgeT]
+    """A list of edges that make up the path."""
 
     def __init__(self, path: list[EdgeT]):
         """Initializes a new instance of the Path class.
@@ -91,7 +89,7 @@ class Path(Generic[NodeT, EdgeT]):
             path: A list of edges that make up the path.
         """
 
-        self.path: list[EdgeT] = path
+        self.path = path
 
     def __str__(self) -> str:
         return '.'.join(str(edge.dst) for edge in self.path)
@@ -116,13 +114,6 @@ class Graph(Generic[NodeT, EdgeT, PathT]):
     The `Graph` class represents a graph data structure, which is a collection 
     of nodes and edges. It provides methods for adding, removing, and 
     manipulating nodes and edges.
-
-    Attributes:
-        id: Unique identifier for the graph.
-        edges: Dictionary of edges in the graph, with the edge ID as key and 
-            the relative Edge object as value.
-        nodes: Dictionary of nodes in the graph, with the node ID as key and 
-            the relative Node object as value.
 
     Examples:
         >>> graph = Graph(1)
@@ -162,6 +153,14 @@ class Graph(Generic[NodeT, EdgeT, PathT]):
         [<__main__.Edge at 0x7f9c80076ca0>]
     """
 
+    edges: dict[int, EdgeT]
+    """Dictionary of edges in the graph, with the edge ID as key and the relative edge object as 
+    value."""
+
+    nodes: dict[int, NodeT]
+    """Dictionary of nodes in the graph, with the node ID as key and the relative node object as 
+    value."""
+
     def __init__(self):
         """Initialize a new instance of the `Graph` class.
 
@@ -170,8 +169,8 @@ class Graph(Generic[NodeT, EdgeT, PathT]):
         and nodes.
         """
 
-        self.edges: dict[int, EdgeT] = {}
-        self.nodes: dict[int, NodeT] = {}
+        self.edges = {}
+        self.nodes = {}
 
     def add_edge(self, edge: EdgeT):
         """Add a new edge to the graph. Ensures a node exists for both the 

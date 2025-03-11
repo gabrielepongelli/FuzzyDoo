@@ -745,6 +745,7 @@ def replay(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None
 
     try:
         n = args.run - 1
+        epoch = args.epoch - 1 if args.epoch is not None else None
         test_case = args.test_case - 1 if args.test_case is not None else None
         run: dict[str, Any] = run_data['runs'][n]
         logging.info("Run #%s started", args.run)
@@ -760,15 +761,19 @@ def replay(parser: ArgumentParser, sub: ArgumentParser, args: Namespace) -> None
             run['agents'][i] = agent
 
         engine = Engine(**run)
-        engine.replay(args.epoch - 1, args.seed, test_case)
+        if epoch is not None:
+            engine.replay(epoch, args.seed, test_case)
+        else:
+            engine.main_seed = args.seed
+            engine.run()
         logging.info("Run #%s terminated", args.run)
     except KeyboardInterrupt:
         logging.info("Interrupted, terminating all agents...")
-        for agent, _ in cast(list[tuple[Agent, Any]], run.get('agents', [])):
+        for agent in cast(list[Agent], run.get('agents', [])):
             agent.on_test_end()
         logging.info("Run #%s terminated", args.run)
 
-    for agent, _ in cast(list[tuple[Agent, Any]], run.get('agents', [])):
+    for agent in cast(list[Agent], run.get('agents', [])):
         agent.on_shutdown()
 
 

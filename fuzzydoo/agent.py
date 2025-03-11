@@ -19,6 +19,18 @@ class ExecutionContext:
     path: ProtocolPath
     """The specific protocol path on which the agent method is invoked."""
 
+    mutation_path: str | None
+    """The qualified name of the element on which the mutation will be applied."""
+
+    mutator: str | None
+    """Name of the mutator to be used for the mutation."""
+
+    def __init__(self, protocol_name: str, path: ProtocolPath, mutation_path: str | None = None, mutator: str | None = None):
+        self.protocol_name = protocol_name
+        self.path = path
+        self.mutation_path = mutation_path
+        self.mutator = mutator
+
 
 class Agent(PublisherSource):
     """A remote or local agent.
@@ -80,12 +92,13 @@ class Agent(PublisherSource):
     - If its result is `False`, the program will handle the exception and **continue the execution**.
 
     To add some behaviour, just override the appropriate method.
-
-    Attributes:
-        name: The name of the agent.
-        wait_start_time: Seconds to wait after calling `on_test_start` before continuing. This can 
-            be useful if an agent requires some time to start.
     """
+
+    name: str
+    """The name of the agent."""
+
+    wait_start_time: float
+    """Time to wait after calling `on_test_start` before continuing."""
 
     @classmethod
     def from_name(cls, name: str, *args, **kwargs) -> "Agent":
@@ -123,10 +136,7 @@ class Agent(PublisherSource):
         """
 
         self.name = self.__class__.__name__ if name is None else name
-        """The name of the agent."""
-
-        self.wait_start_time: float = wait_start_time
-        """Time to wait after calling `on_test_start` before continuing."""
+        self.wait_start_time = wait_start_time
 
     def set_options(self, **kwargs):
         """Set options for the agent.

@@ -8,7 +8,7 @@ from pycrate_asn1rt.asnobj import ASN1Obj
 
 from ...mutator import Fuzzable, Mutator, mutable
 from ...utils.register import register
-from ...utils.network import ngap_modify_safety_checks, ngap_to_aper_unsafe
+from ...utils.network import ngap_modify_safety_checks, ngap_to_aper_unsafe, PYCRATE_NGAP_STRUCT_LOCK
 from ...protocol import Message
 from .types import ASN1Type, EnumType, IntType, map_type
 from .aper import AperEntity
@@ -61,24 +61,26 @@ class InformationElement(Fuzzable):
 
         self._name: str = name
         self._parent: "InformationElement | NGAPMessage" = parent
-        self._content: ASN1Obj = content
-        self._sync_content()
 
-        self._path: list[str] = [str(p) for p in path]
-        self._leaf_paths = [path for path, _ in self._content.get_val_paths()]
-        self._disabled_constr_paths: set[tuple] = set()
+        with PYCRATE_NGAP_STRUCT_LOCK:
+            self._content: ASN1Obj = content
+            self._sync_content()
 
-        aper = AperEntity(self._content)
-        raw_ie = aper.raw()
-        self._aper_ie = ModifiableRawContent[AperEntity](aper, pos=(0, len(raw_ie)))
+            self._path: list[str] = [str(p) for p in path]
+            self._leaf_paths = [path for path, _ in self._content.get_val_paths()]
+            self._disabled_constr_paths: set[tuple] = set()
 
-        aper = AperEntity(self._content.get_at(['value']))
-        aper_raw = aper.raw()
+            aper = AperEntity(self._content)
+            raw_ie = aper.raw()
+            self._aper_ie = ModifiableRawContent[AperEntity](aper, pos=(0, len(raw_ie)))
 
-        # since we can modify only the preamble and/or length determinants, we modify only the
-        # initial part of the content, so the offset from the end remains the same
-        self._aper_content = ModifiableRawContent[AperEntity](
-            aper, pos=(len(aper_raw) - raw_ie.find(aper_raw), len(aper_raw)))
+            aper = AperEntity(self._content.get_at(['value']))
+            aper_raw = aper.raw()
+
+            # since we can modify only the preamble and/or length determinants, we modify only the
+            # initial part of the content, so the offset from the end remains the same
+            self._aper_content = ModifiableRawContent[AperEntity](
+                aper, pos=(len(aper_raw) - raw_ie.find(aper_raw), len(aper_raw)))
 
     def _sync_content(self):
         """Synchronizes the internal content of this Information Element.
@@ -118,8 +120,9 @@ class InformationElement(Fuzzable):
     def content(self) -> dict:
         """The content of this IE."""
 
-        self._sync_content()
-        return self._content.get_val()
+        with PYCRATE_NGAP_STRUCT_LOCK:
+            self._sync_content()
+            return self._content.get_val()
 
     @override
     @property
@@ -200,8 +203,9 @@ class InformationElement(Fuzzable):
         if self._aper_ie.modified:
             raw_data = self._aper_ie.content.raw()
         else:
-            self._sync_content()
-            raw_data = ngap_to_aper_unsafe(self._content, self._disabled_constr_paths)
+            with PYCRATE_NGAP_STRUCT_LOCK:
+                self._sync_content()
+                raw_data = ngap_to_aper_unsafe(self._content, self._disabled_constr_paths)
 
         if self._aper_content.modified:
             pos, size = self._aper_content.pos
@@ -223,10 +227,11 @@ class InformationElement(Fuzzable):
 
         for p in self._leaf_paths:
             if parts[1:] == p:
-                self._sync_content()
-                ngap_modify_safety_checks(self._content, p, enable=False)
-                res = self._content.get_at(p)
-                return map_type(type(res))(content=res, path=p, parent=self)
+                with PYCRATE_NGAP_STRUCT_LOCK:
+                    self._sync_content()
+                    ngap_modify_safety_checks(self._content, p, enable=False)
+                    res = self._content.get_at(p)
+                    return map_type(type(res))(content=res, path=p, parent=self)
 
         raise ContentNotFoundError(f"No content at the path '{qname}' exists in the message")
 
@@ -307,34 +312,35 @@ class NGAPMessage(Message[ASN1Obj]):
         self._ies: list[ModifiableRawContent[InformationElement]] | None = None
 
         if content is not None:
-            aper = AperEntity(content)
-            raw_msg = aper.raw()
-            self._aper_msg = ModifiableRawContent[AperEntity](aper, pos=(0, len(raw_msg)))
+            with PYCRATE_NGAP_STRUCT_LOCK:
+                aper = AperEntity(content)
+                raw_msg = aper.raw()
+                self._aper_msg = ModifiableRawContent[AperEntity](aper, pos=(0, len(raw_msg)))
 
-            aper = AperEntity(content.get_at([self._msg_type, 'value']))
-            aper_raw = aper.raw()
+                aper = AperEntity(content.get_at([self._msg_type, 'value']))
+                aper_raw = aper.raw()
 
-            # since we can modify only the preamble and/or length determinants, we modify only the
-            # initial part of the content, so the offset from the end remains the same
-            self._aper_content = ModifiableRawContent[AperEntity](
-                aper, pos=(len(aper_raw) - raw_msg.find(aper_raw), len(aper_raw)))
+                # since we can modify only the preamble and/or length determinants, we modify only the
+                # initial part of the content, so the offset from the end remains the same
+                self._aper_content = ModifiableRawContent[AperEntity](
+                    aper, pos=(len(aper_raw) - raw_msg.find(aper_raw), len(aper_raw)))
 
-            ies = content.get_at([self._msg_type, 'value', self._body_type, 'protocolIEs'])
-            aper = AperEntity(ies)
-            aper_raw = aper.raw()
-            self._aper_ies = ModifiableRawContent[AperEntity](
-                aper, pos=(len(aper_raw) - raw_msg.find(aper_raw), len(aper_raw)))
+                ies = content.get_at([self._msg_type, 'value', self._body_type, 'protocolIEs'])
+                aper = AperEntity(ies)
+                aper_raw = aper.raw()
+                self._aper_ies = ModifiableRawContent[AperEntity](
+                    aper, pos=(len(aper_raw) - raw_msg.find(aper_raw), len(aper_raw)))
 
-            self._ies = []
-            generic_ie = content.get_at([self._msg_type, 'value', self._body_type, 'protocolIEs', 0])
-            for idx, val in enumerate(self.content[1]['value'][1]['protocolIEs']):
+                self._ies = []
+                generic_ie = content.get_at([self._msg_type, 'value', self._body_type, 'protocolIEs', 0])
+                for idx, val in enumerate(self.content[1]['value'][1]['protocolIEs']):
 
-                name = val['value'][0]
-                ie = InformationElement(generic_ie, name, path=['ies', idx], parent=self)
-                ies._cont.set_val(ies.get_val_at([0]))
-                raw = ies.get_at([idx]).to_aper()
-                pos = (len(raw) - raw_msg.find(raw), len(raw))
-                self._ies.append(ModifiableRawContent[InformationElement](ie, pos=pos))
+                    name = val['value'][0]
+                    ie = InformationElement(generic_ie, name, path=['ies', idx], parent=self)
+                    ies._cont.set_val(ies.get_val_at([0]))
+                    raw = ies.get_at([idx]).to_aper()
+                    pos = (len(raw) - raw_msg.find(raw), len(raw))
+                    self._ies.append(ModifiableRawContent[InformationElement](ie, pos=pos))
 
     @property
     def procedure_code(self) -> IntType | None:
@@ -398,7 +404,8 @@ class NGAPMessage(Message[ASN1Obj]):
     @property
     def content(self) -> Any | None:
         if self.initialized:
-            return self._content.get_val()
+            with PYCRATE_NGAP_STRUCT_LOCK:
+                return self._content.get_val()
         return None
 
     @property
@@ -461,19 +468,20 @@ class NGAPMessage(Message[ASN1Obj]):
 
     @override
     def parse(self, data: bytes) -> "NGAPMessage":
-        ngap_pdu: ASN1Obj = ngap.NGAP_PDU_Descriptions.NGAP_PDU
-        try:
-            from_aper = cast(Callable[[Any], None], ngap_pdu.from_aper)
-            from_aper(data)
-        except PycrateErr as e:
-            raise MessageParsingError(f"Failed to parse NGAP message: {e}") from e
+        with PYCRATE_NGAP_STRUCT_LOCK:
+            ngap_pdu: ASN1Obj = ngap.NGAP_PDU_Descriptions.NGAP_PDU
+            try:
+                from_aper = cast(Callable[[Any], None], ngap_pdu.from_aper)
+                from_aper(data)
+            except PycrateErr as e:
+                raise MessageParsingError(f"Failed to parse NGAP message: {e}") from e
 
-        try:
-            ngap_pdu.get_val_at([self._msg_type, 'value', self._body_type])
-        except PycrateErr as e:
-            pdu_content = ngap_pdu.get_val()
-            raise MessageParsingError(
-                f"Wrong message type: {pdu_content[0]}:{pdu_content[1]['value'][0]}") from e
+            try:
+                ngap_pdu.get_val_at([self._msg_type, 'value', self._body_type])
+            except PycrateErr as e:
+                pdu_content = ngap_pdu.get_val()
+                raise MessageParsingError(
+                    f"Wrong message type: {pdu_content[0]}:{pdu_content[1]['value'][0]}") from e
 
         new_msg: NGAPMessage = self.from_name(
             self._protocol, self.__class__.__name__, content=ngap_pdu)
@@ -488,7 +496,8 @@ class NGAPMessage(Message[ASN1Obj]):
         if self._aper_msg.modified:
             raw_data = self._aper_msg.content.raw()
         else:
-            raw_data = ngap_to_aper_unsafe(self._content, self._disabled_constr_paths)
+            with PYCRATE_NGAP_STRUCT_LOCK:
+                raw_data = ngap_to_aper_unsafe(self._content, self._disabled_constr_paths)
 
         if self._aper_content.modified:
             pos, size = self._aper_content.pos
@@ -525,16 +534,18 @@ class NGAPMessage(Message[ASN1Obj]):
         if self.initialized:
             if len(parts) == 2:
                 if parts[1] == 'procedure_code':
-                    path = [self._msg_type, 'procedureCode']
-                    res = self._content.get_at(path)
-                    ngap_modify_safety_checks(self._content, path, enable=False)
-                    return map_type(type(res))(content=res, path=['procedure_code'], parent=self)
+                    with PYCRATE_NGAP_STRUCT_LOCK:
+                        path = [self._msg_type, 'procedureCode']
+                        res = self._content.get_at(path)
+                        ngap_modify_safety_checks(self._content, path, enable=False)
+                        return map_type(type(res))(content=res, path=['procedure_code'], parent=self)
 
                 if parts[1] == 'criticality':
-                    path = [self._msg_type, 'criticality']
-                    res = self._content.get_at(path)
-                    ngap_modify_safety_checks(self._content, path, enable=False)
-                    return map_type(type(res))(content=res, path=['criticality'], parent=self)
+                    with PYCRATE_NGAP_STRUCT_LOCK:
+                        path = [self._msg_type, 'criticality']
+                        res = self._content.get_at(path)
+                        ngap_modify_safety_checks(self._content, path, enable=False)
+                        return map_type(type(res))(content=res, path=['criticality'], parent=self)
 
             if parts[1] == 'ies' and 0 <= parts[2] < len(self._ies):
                 ie: InformationElement = self._ies[parts[2]].content
@@ -563,16 +574,18 @@ class NGAPMessage(Message[ASN1Obj]):
             full_path = [self._msg_type]
             if len(parts) == 2:
                 if parts[1] == 'procedure_code':
-                    full_path.append('procedureCode')
-                    ngap_modify_safety_checks(self._content, full_path, enable=False)
-                    self._content.set_val_at(full_path, value)
-                    return
+                    with PYCRATE_NGAP_STRUCT_LOCK:
+                        full_path.append('procedureCode')
+                        ngap_modify_safety_checks(self._content, full_path, enable=False)
+                        self._content.set_val_at(full_path, value)
+                        return
 
                 if parts[1] == 'criticality':
-                    full_path.append('criticality')
-                    ngap_modify_safety_checks(self._content, full_path, enable=False)
-                    self._content.set_val_at(full_path, value)
-                    return
+                    with PYCRATE_NGAP_STRUCT_LOCK:
+                        full_path.append('criticality')
+                        ngap_modify_safety_checks(self._content, full_path, enable=False)
+                        self._content.set_val_at(full_path, value)
+                        return
 
             full_path.extend(['value', self._body_type, 'protocolIEs'])
             if parts[1] == 'ies':
@@ -589,9 +602,11 @@ class NGAPMessage(Message[ASN1Obj]):
                     full_path.extend(parts[4:])
                     if isinstance(value, ASN1Type):
                         value = value.value
-                    ngap_modify_safety_checks(self._content, full_path, enable=False)
-                    self._content.set_val_at(full_path, value)
-                    return
+
+                    with PYCRATE_NGAP_STRUCT_LOCK:
+                        ngap_modify_safety_checks(self._content, full_path, enable=False)
+                        self._content.set_val_at(full_path, value)
+                        return
 
                 if parts[2] == len(self._ies) and isinstance(value, InformationElement):
                     # a new IE is added at the end
@@ -626,39 +641,40 @@ __all__ = ['NGAPMessage', 'InformationElement']
 
 # dinamically create all the message classes, one for each NGAP message
 
-# pylint: disable=protected-access no-member
-for message_type in ngap.NGAP_PDU_Descriptions.NGAP_PDU._cont_tags.values():
-    message_type: str = message_type[0].capitalize() + message_type[1:]
-    pdu = getattr(ngap.NGAP_PDU_Descriptions, message_type)
-    body_types = pdu.get_at(['value']).get_const()['tab'].get_val().root
+with PYCRATE_NGAP_STRUCT_LOCK:
+    # pylint: disable=protected-access no-member
+    for message_type in ngap.NGAP_PDU_Descriptions.NGAP_PDU._cont_tags.values():
+        message_type: str = message_type[0].capitalize() + message_type[1:]
+        pdu = getattr(ngap.NGAP_PDU_Descriptions, message_type)
+        body_types = pdu.get_at(['value']).get_const()['tab'].get_val().root
 
-    def get_pred(msg_type: str):
-        def pred(item: dict):
-            if msg_type not in item:
-                return (None, None)
-            ref = item[msg_type].get_typeref()
-            return (ref._name, ref)
-        return pred
+        def get_pred(msg_type: str):
+            def pred(item: dict):
+                if msg_type not in item:
+                    return (None, None)
+                ref = item[msg_type].get_typeref()
+                return (ref._name, ref)
+            return pred
 
-    filtered_bodies = map(get_pred(message_type), body_types)
-    for k, v in filtered_bodies:
-        if k is None:
-            continue
+        filtered_bodies = map(get_pred(message_type), body_types)
+        for k, v in filtered_bodies:
+            if k is None:
+                continue
 
-        def make_init(msg_type: str, body_type: str) -> Callable[[Any, int, int], None]:
-            msg_type = msg_type[0].lower() + msg_type[1:]
+            def make_init(msg_type: str, body_type: str) -> Callable[[Any, int, int], None]:
+                msg_type = msg_type[0].lower() + msg_type[1:]
 
-            def new_init(self, content: ASN1Obj | None = None, delay: int = 0, n_replay: int = 1):
-                NGAPMessage.__init__(self, msg_type, body_type, content, delay,
-                                     n_replay)
+                def new_init(self, content: ASN1Obj | None = None, delay: int = 0, n_replay: int = 1):
+                    NGAPMessage.__init__(self, msg_type, body_type, content, delay,
+                                         n_replay)
 
-            return new_init
+                return new_init
 
-        class_name = k + 'Message'
-        class_bases = (NGAPMessage, )
-        class_attrs = {"__init__": make_init(message_type, k)}
-        new_class = register(Message, "NGAP")(
-            mutable(type(class_name, class_bases, class_attrs)))
+            class_name = k + 'Message'
+            class_bases = (NGAPMessage, )
+            class_attrs = {"__init__": make_init(message_type, k)}
+            new_class = register(Message, "NGAP")(
+                mutable(type(class_name, class_bases, class_attrs)))
 
-        globals()[class_name] = new_class
-        globals()['__all__'].append(class_name)
+            globals()[class_name] = new_class
+            globals()['__all__'].append(class_name)

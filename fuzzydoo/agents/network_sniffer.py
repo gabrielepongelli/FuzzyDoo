@@ -8,7 +8,7 @@ import socket
 from typing import override
 from queue import Queue, ShutDown
 
-import scapy.all as scapy
+from scapy import all as scapy
 
 from ..agent import Agent, ExecutionContext
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread
@@ -22,6 +22,9 @@ from ..utils.errs import *
 class SnifferThread(EventStoppableThread, ExceptionRaiserThread):
     """Thread class that sniffs packets."""
 
+    packets: Queue
+    """Packets sniffed by this thread."""
+
     # pylint: disable=redefined-builtin
     def __init__(self, iface: str | list[str], filter: str | None):
         super().__init__()
@@ -30,8 +33,8 @@ class SnifferThread(EventStoppableThread, ExceptionRaiserThread):
 
         self._iface = iface
         self._filter = filter
-        self.packets: Queue = Queue()
-        self.exception: Exception | None = None
+        self.packets = Queue()
+        self.exception = None
 
     @override
     def handled_run(self):
@@ -138,6 +141,9 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
         'iface': None,
         'filter': None
     }
+
+    options: dict[str, str | list[str] | None]
+    """Options currently set on the agent."""
 
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)

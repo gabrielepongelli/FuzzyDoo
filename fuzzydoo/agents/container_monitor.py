@@ -88,6 +88,9 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
         'containers': []
     }
 
+    options: dict[str, list[str]]
+    """Options currently set on the agent."""
+
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)
 
@@ -129,11 +132,11 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
 
         is_running = result.stdout.strip()
         if is_running == "true":
-            logging.info('Container %s running', self.options['container_name'])
+            logging.info('Container %s running', container)
             return True
 
         if is_running == "false":
-            logging.info('Container %s not running', self.options['container_name'])
+            logging.info('Container %s not running', container)
             return False
 
         logging.error("Unexpected output: %s", is_running)

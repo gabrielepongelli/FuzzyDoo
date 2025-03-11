@@ -93,12 +93,20 @@ NAS_SM_SUPPORTED_PATHS = [
 class OutputListenerThread(EventStoppableThread):
     """Thread class that listens for output of UERANSIM tools."""
 
+    stream: IO[bytes]
+    """Stream on which this thread will listen on."""
+
+    output: list[str]
+    """Decoded output captured by this thread."""
+
+    output_queues: list[Queue]
+    """Queues where raw output will be stored."""
+
     def __init__(self, stream: IO[bytes], output_queues: list[Queue] | None = None):
         super().__init__()
         self.stream = stream
-
-        self.output: list[str] = []
-        self.output_queues: list[Queue] = output_queues or []
+        self.output = []
+        self.output_queues = output_queues or []
 
     @override
     def run(self):
@@ -127,6 +135,18 @@ class OutputListenerThread(EventStoppableThread):
 
 class OutputWatcherThread(EventStoppableThread):
     """Thread class that watches for output of UERANSIM tools."""
+
+    pred: Callable[[str], bool]
+    """Predicate to decide whether a line correspond to a match."""
+
+    on_match: Callable[[str], None]
+    """Function executed on each new match."""
+
+    queue: Queue
+    """Input queue."""
+
+    watch_event: Event
+    """Event signaling a new match."""
 
     def __init__(self,
                  pred: Callable[[str], bool],
@@ -157,9 +177,12 @@ class OutputWatcherThread(EventStoppableThread):
 class ErrorDetectorThread(OutputWatcherThread):
     """Thread class that detects errors of UERANSIM tools."""
 
+    err_msg: str | None
+    """Error message extracted from the last error line."""
+
     def __init__(self):
         super().__init__(self.detect_error, self.on_error)
-        self.err_msg: str | None = None
+        self.err_msg = None
 
     def detect_error(self, line: str) -> bool:
         """Check whether the current line contains an error message.
@@ -271,25 +294,44 @@ class UERANSIMCli:
 class ProcessHandlerThread(EventStoppableThread, ExceptionRaiserThread):
     """Thread class that handle UERANSIM processes."""
 
+    descriptor: UERANSIMToolDescriptor
+    """The UERANSIM tool descriptor of the tool this thread handles."""
+
+    is_success: Callable[[str], bool]
+    """Predicate indicating whether the main task of the handled process is successfully executed. 
+    It takes as argument a string which corresponds to a line taken from the standard output of the 
+    process."""
+
+    output_listener: OutputListenerThread
+    """Output listener to attach to the handled process. Must be set by the user of this class 
+    before calling `start`."""
+
+    error_detector: ErrorDetectorThread
+    """Error detector to attach to the handled process. Must be set by the user of this class 
+    before calling `start`."""
+
+    success_detector: OutputWatcherThread
+    """Output watcher to attach to the handled process. Must be set by the user of this class 
+    before calling `start`."""
+
     def __init__(self, descriptor: UERANSIMToolDescriptor, is_success: Callable[[str], bool]):
         super().__init__()
 
         self.descriptor = descriptor
         self.is_success = is_success
-
-        self.output_listener: OutputListenerThread | None = None
-        self.error_detector: ErrorDetectorThread | None = None
-        self.success_detector: OutputWatcherThread | None = None
+        self.output_listener = None
+        self.error_detector = None
+        self.success_detector = None
 
     @property
     def success_event(self) -> Event | None:
-        """Get the success event associated with this thread."""
+        """The success event associated with this thread."""
 
         return self.success_detector.watch_event if self.success_detector is not None else None
 
     @property
     def output(self) -> list[str]:
-        """Get the output of the UERANSIM process."""
+        """The output of the UERANSIM process."""
 
         return self.output_listener.output if self.output_listener is not None else []
 
@@ -410,6 +452,27 @@ class ProcessHandlerThread(EventStoppableThread, ExceptionRaiserThread):
 class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
     """Thread class that orchestrates the gNB and UE starting and monitoring operations."""
 
+    gnb_handler: ProcessHandlerThread
+    """Handler for UERANSIM's gNB process."""
+
+    ue_handler: ProcessHandlerThread
+    """Handler for UERANSIM's UE process."""
+
+    cli_path: Path
+    """Path to the UERANSIM CLI executable."""
+
+    also_start_ue: bool
+    """Whether to start also the UE process or not."""
+
+    also_exec_cli: bool
+    """Whether to execute also some CLI command or not."""
+
+    protocol: str
+    """The name of the protocol being fuzzed."""
+
+    protocol_path_idx: int
+    """The index of the path currently being fuzzed in `-PROTOCOL-_SUPPORTED_PATHS`."""
+
     def __init__(self, gnb_descriptor: UERANSIMToolDescriptor,
                  ue_descriptor: UERANSIMToolDescriptor,
                  cli_path: Path,
@@ -425,13 +488,13 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
         self.ue_handler = ProcessHandlerThread(
             ue_descriptor,
             lambda line: "PDU Session establishment is successful" in line)
-        self.cli_path: Path = cli_path
+        self.cli_path = cli_path
 
-        self.also_start_ue: bool = also_start_ue
-        self.also_exec_cli: bool = also_exec_cli
+        self.also_start_ue = also_start_ue
+        self.also_exec_cli = also_exec_cli
 
-        self.protocol: str = protocol
-        self.protocol_path_idx: int = protocol_path_idx
+        self.protocol = protocol
+        self.protocol_path_idx = protocol_path_idx
 
     def _path_idx_to_cmd_idx(self) -> int | None:
         """Map the given path index to the corresponding cli command index."""
@@ -515,13 +578,13 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
 
     @property
     def gnb_output(self) -> list[str]:
-        """Get the stdout of gNB."""
+        """The stdout of gNB."""
 
         return self.gnb_handler.output
 
     @property
     def ue_output(self) -> list[str]:
-        """Get the stdout of UE."""
+        """The stdout of UE."""
 
         return self.ue_handler.output
 
@@ -605,22 +668,22 @@ class UERANSIMControllerAgent(GrpcClientAgent):
 
         Args:
             kwargs: Additional keyword arguments. It must contain the following keys:
-                - 'gnb' (optional): A dictionary with the following key-value pairs:
-                    - 'exe_path' (optional): A string representing the remote path where the
+                - `'gnb'` (optional): A dictionary with the following key-value pairs:
+                    - `'exe_path'` (optional): A string representing the remote path where the
                         executable program to be used for the gnb is located. Defaults to
                         `'./nr-gnb'`.
-                    - 'config_path' (optional): A string representing the remote path where the
+                    - `'config_path'` (optional): A string representing the remote path where the
                         configuration file to be used for the gnb is located. Defaults to
                         `'./gnb.yaml'`.
-                - 'ue' (optional): A dictionary with the following key-value pairs:
-                    - 'exe_path' (optional): A string representing the remote path where the
+                - `'ue'` (optional): A dictionary with the following key-value pairs:
+                    - `'exe_path'` (optional): A string representing the remote path where the
                         executable program to be used for the ue is located. Defaults to
                         `'./nr-ue'`.
-                    - 'config_path' (optional): A string representing the remote path where the
+                    - `'config_path'` (optional): A string representing the remote path where the
                         configuration file to be used for the gnb is located. Defaults to
                         `'./ue.yaml'`.
-                - 'cli_path' (optional): A string representing the remote path where the executable
-                    program to be used for the cli is located. Defaults to `'./nr-cli'`.
+                - `'cli_path'` (optional): A string representing the remote path where the 
+                    executable program to be used for the cli is located. Defaults to `'./nr-cli'`.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method
@@ -674,15 +737,29 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
         'cli_exe_path': Path('./nr-cli'),
     }
 
+    options: dict[str, Path]
+    """Options currently set on the agent."""
+
+    gnb: UERANSIMToolDescriptor | None
+    """The UERANSIM tool descriptor for gNB."""
+
+    ue: UERANSIMToolDescriptor | None
+    """The UERANSIM tool descriptor for UE."""
+
+    orchestrator: OrchestratorThread | None
+    """The orchestrator thread that will be used during execution."""
+
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)
 
         self.options = dict(self.DEFAULT_OPTIONS)
         self.set_options(**kwargs)
 
-        self.gnb: UERANSIMToolDescriptor | None = None
-        self.ue: UERANSIMToolDescriptor | None = None
-        self.orchestrator: OrchestratorThread | None = None
+        self.gnb = None
+        self.ue = None
+        self.orchestrator = None
+
+        self._is_delay_mutation: bool = False
 
     def _is_subpath(self, path: list[str], subpath: ProtocolPath | list[str]) -> bool:
         """Check if `subpath` is a subpath of `path`.
@@ -789,6 +866,8 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
             logging.error(msg)
             raise AgentError(msg)
 
+        self._is_delay_mutation = ctx.mutator is not None and ctx.mutator == "DelayedMessageMutator"
+
         self.gnb = UERANSIMToolDescriptor(
             'gNB', self.options['gnb_exe_path'], self.options['gnb_config_path'])
 
@@ -813,8 +892,13 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
 
     @override
     def on_test_end(self):
+        if self.orchestrator is None:
+            return
+
         self.orchestrator.join()
-        if self.orchestrator.is_error_occurred:
+        if self.orchestrator.is_error_occurred \
+                and (not self._is_delay_mutation
+                     or "no response from the network" not in str(self.orchestrator.exception)):
             raise self.orchestrator.exception
 
     @override
@@ -839,10 +923,22 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
 
     @override
     def redo_test(self) -> bool:
+        # in case we are delaying messages, ignore errors related to missing responses
+        if self._is_delay_mutation \
+                and self.orchestrator.is_error_occurred \
+                and "no response from the network" in str(self.orchestrator.exception):
+            return False
+
         return self.orchestrator.is_error_occurred and self.orchestrator.is_error_recoverable
 
     @override
     def stop_execution(self) -> bool:
+        # in case we are delaying messages, ignore errors related to missing responses
+        if self._is_delay_mutation \
+                and self.orchestrator.is_error_occurred \
+                and "no response from the network" in str(self.orchestrator.exception):
+            return False
+
         return self.orchestrator.is_error_occurred and not self.orchestrator.is_error_recoverable
 
 

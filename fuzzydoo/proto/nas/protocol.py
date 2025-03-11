@@ -14,12 +14,6 @@ class NASMMProtocol(CapabilityProtocol):
     This class provides methods and attributes specific to the NAS-MM protocol, facilitating
     the management of various procedures such as PDU session management, UE context management,
     UE mobility management, and more.
-
-    Attributes:
-        name: The name of the protocol. Is set to `"NAS-MM"`.
-        root: The root node of the protocol graph.
-        actors: The names of all actors involved in the protocol.
-        capabilities: The list of possible capability values in the protocol.
     """
 
     def __init__(self):
@@ -418,12 +412,6 @@ class NASSMProtocol(CapabilityProtocol):
     This class provides methods and attributes specific to the NAS-SM protocol, facilitating
     the management of various procedures such as PDU session management, UE context management,
     UE mobility management, and more.
-
-    Attributes:
-        name: The name of the protocol. Is set to `"NAS-SM"`.
-        root: The root node of the protocol graph.
-        actors: The names of all actors involved in the protocol.
-        capabilities: The list of possible capability values in the protocol.
     """
 
     def __init__(self):

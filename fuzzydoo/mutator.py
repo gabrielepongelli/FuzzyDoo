@@ -29,37 +29,20 @@ class Fuzzable(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Get the name of the fuzzable entity.
-
-        Returns:
-            str: The name of the fuzzable entity.
-        """
-
-    @property
-    def fuzzable(self) -> bool:
-        """Check if the current fuzzable entity is fuzzable.
-
-        Returns:
-            bool: `True` if the current fuzzable entity can be fuzzed, `False` otherwise.
-        """
-
-        return True
+        """The name of the fuzzable entity."""
 
     @property
     @abstractmethod
     def parent(self) -> "Fuzzable | None":
-        """Get the parent fuzzable entity."""
+        """The parent fuzzable entity."""
 
     @property
     def qualified_name(self) -> str:
-        """Get the fully qualified name of the fuzzable entity.
+        """The fully qualified name of the fuzzable entity.
 
         The qualified name is a string that represents the path to the fuzzable entity 
         in the structure. It is constructed by concatenating the names of all parent 
         entities and the current entity, separated by dots.
-
-        Returns:
-            str: The fully qualified name of the fuzzable entity.
         """
 
         return self.name if self.parent is None else f"{self.parent.qualified_name}.{self.name}"
@@ -81,7 +64,7 @@ class Fuzzable(ABC):
         """Get the value of the fuzzable entity at the specified qualified name.
 
         Args:
-            qname: QUalified name of the fuzzable entity in the structure. The qualified name is a 
+            qname: Qualified name of the fuzzable entity in the structure. The qualified name is a 
             string consisting of the names of the fuzzable entities separated by dots. For example,
                 `"parent.child.grandchild"`.
 
@@ -112,7 +95,7 @@ class Fuzzable(ABC):
         """Set the value of the fuzzable entity at the specified qualified name.
 
         Args:
-            qname: QUalified name of the fuzzable entity in the structure. The qualified name is a 
+            qname: Qualified name of the fuzzable entity in the structure. The qualified name is a 
             string consisting of the names of the fuzzable entities separated by dots. For example,
                 `"parent.child.grandchild"`.
             value: New value for the fuzzable entity. The value should be of the same type as the 
@@ -148,20 +131,24 @@ class Mutation:
     This class is used to store information about a mutation performed on a specific field of a 
     `Fuzzable` object. It encapsulates the details of the mutation in such a way that it can be 
     easily replicated and applied to other `Fuzzable` objects.
-
-    Attributes:
-        mutator: The type of the mutator that generated this mutation. This attribute helps
-            identify the type of mutation that was performed.
-        mutator_state: The state of the mutator at the time of mutation. This attribute can hold
-            any additional information about the mutator's state that might be useful for applying 
-            the mutation.
-        field_name: The qualified name of the field in the `Fuzzable` object that was mutated. This 
-            attribute allows for precise tracking of the location of the mutation within the data 
-            structure.
-        mutated_value: The new value of the mutated field. This attribute holds the 
-            value that the field was changed to as part of the mutation. If can be `None` if the 
-            new value is not currently available.
     """
+
+    mutator: "Type[Mutator]"
+    """The type of the mutator that generated this mutation. This attribute helps identify the type 
+    of mutation that was performed."""
+
+    mutator_state: Any
+    """The state of the mutator at the time of mutation. This attribute can hold any additional 
+    information about the mutator's state that might be useful for applying the mutation."""
+
+    field_name: str
+    """The qualified name of the field in the `Fuzzable` object that was mutated. This attribute 
+    allows for precise tracking of the location of the mutation within the data structure."""
+
+    mutated_value: DataT | None
+    """The new value of the mutated field. This attribute holds the value that the field was 
+    changed to as part of the mutation. If can be `None` if the new value is not currently 
+    available."""
 
     def __init__(self, mutator: "Type[Mutator]", mutator_state: Any, field_name: str, mutated_value: DataT | None = None):
         """Initialize a `Mutation` object.
@@ -173,15 +160,18 @@ class Mutation:
             mutated_value (optional): The new value of the mutated field. Defaults to `None`.
         """
 
-        self.mutator: "Type[Mutator]" = mutator
-        self.mutator_state: Any = mutator_state
-        self.field_name: str = field_name
-        self.mutated_value: DataT | None = mutated_value
+        self.mutator = mutator
+        self.mutator_state = mutator_state
+        self.field_name = field_name
+        self.mutated_value = mutated_value
+
+    def __repr__(self):
+        mutator = self.mutator
+        field_name = self.field_name
+        return f"{self.__class__.__name__}({mutator=}, {field_name=})"
 
     def __eq__(self, value: object) -> bool:
         return isinstance(value, Mutation) \
-            and self.mutator == value.mutator \
-            and self.mutator_state == value.mutator_state \
             and self.field_name == value.field_name \
             and self.mutated_value == value.mutated_value
 
@@ -205,7 +195,14 @@ class Mutation:
         else:
             qname = f"{data.name}.{self.field_name}"
 
-        data.set_content(qname, mutated_val)
+        try:
+            data.set_content(qname, mutated_val)
+        except ContentNotFoundError as e:
+            if hasattr(data, self.field_name):
+                setattr(data, self.field_name, mutated_val)
+            else:
+                raise e
+
         return data
 
 

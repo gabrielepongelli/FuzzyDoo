@@ -13,7 +13,6 @@ from ..utils.register import register
 from ..utils.other import run_as_root
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
-
 from ..utils.errs import *
 
 
@@ -96,6 +95,9 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         'compose_yaml_path': None,
         'restart_anyway': False
     }
+
+    options: dict[str, Path | bool | None]
+    """Options currently set on the agent."""
 
     def __init__(self, **kwargs):
         super().__init__(None, **kwargs)

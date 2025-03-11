@@ -23,8 +23,8 @@ class GrpcClientAgent(Agent):
             wait_start_time (optional): Seconds to wait after calling `on_test_start` before 
                 continuing. Defaults to `0.0`.
             kwargs: Additional parameters. It must contain the following keys:
-                'ip': A string representing the IP address of the gRPC server.
-                'port': A number representing the port the gRPC server is listening on.
+                - `'ip'`: A string representing the IP address of the gRPC server.
+                - `'port'`: A number representing the port the gRPC server is listening on.
         """
 
         super().__init__(name, wait_start_time, **kwargs)
@@ -91,7 +91,7 @@ class GrpcClientAgent(Agent):
 
         res = []
         for path in response.data.protocol_paths.paths:
-            res.append([msg for msg in path.messages])
+            res.append(list(path.messages))
         return res
 
     @override

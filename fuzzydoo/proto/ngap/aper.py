@@ -12,6 +12,8 @@ from pycrate_asn1rt.asnobj_ext import OPEN
 from pycrate_asn1rt.setobj import ASN1Set
 from pycrate_core.utils_py3 import pack_val, TYPE_UINT, TYPE_BYTES
 
+from ...utils.network import PYCRATE_NGAP_STRUCT_LOCK
+
 
 class AperEntity:
     """A class representing an ASN.1 Aligned Packed Encoding Rules (APER) encoded entity.
@@ -40,12 +42,13 @@ class AperEntity:
             entity: The ASN.1 object to be parsed.
         """
 
-        self._preamble: bitarray = self._get_preamble(entity)
-        self._size: int = self._get_content_size(entity)
-        self._length_unit: str = self._get_length_unit(entity)
-        self._len_dets: list[bitarray] = self._get_len_dets(entity, self._size)
+        with PYCRATE_NGAP_STRUCT_LOCK:
+            self._preamble: bitarray = self._get_preamble(entity)
+            self._size: int = self._get_content_size(entity)
+            self._length_unit: str = self._get_length_unit(entity)
+            self._len_dets: list[bitarray] = self._get_len_dets(entity, self._size)
 
-        self.fragments: list[bytes] = self._get_fragments(entity)
+            self.fragments: list[bytes] = self._get_fragments(entity)
 
     def _size_to_index(self, size: int) -> int:
         """Map a standard fragment size to its respective index for encoding purposes.

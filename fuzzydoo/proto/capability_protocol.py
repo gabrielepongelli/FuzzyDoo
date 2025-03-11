@@ -9,9 +9,11 @@ from ..protocol import MessageNode, Protocol, EdgeTag, ProtocolEdge, ProtocolNod
 class CapabilityAction(Enum):
     """Enumeration of possible actions to perform on capabilities within a `CapabilityProtocol`.
 
-    This enum defines the fundamental operations that can be performed on capabilities: adding, removing, and requiring. These actions are used in conjunction with `CapabilityNodes` to model the flow of capabilities through a protocol graph.
+    This enum defines the fundamental operations that can be performed on capabilities: adding, 
+    removing, and requiring. These actions are used in conjunction with `CapabilityNodes` to model 
+    the flow of capabilities through a protocol graph.
 
-    Attributes:
+    Actions:
         ADD: Represents the action of granting or adding a capability.
             When encountered, this action adds the associated capability to the current set of 
             active capabilities.
@@ -43,16 +45,14 @@ class CapabilityNode(ProtocolNode):
     `CapabilityNode` extends `ProtocolNode` to model capability-related operations within a 
     `CapabilityProtocol`. Each node represents a single action (see `CapabilityAction`) associated 
     with a specific capability.
-
-    Attributes:
-        id: The unique identifier for the node within the protocol graph.
-        action: The capability action associated with this node. This determines how the node 
-            affects the capability state when encountered during protocol traversal.
-        capability: The specific capability that this node operates on.
     """
 
     action: CapabilityAction
+    """The capability action associated with this node. This determines how the node affects the 
+    capability state when encountered during protocol traversal."""
+
     capability: str
+    """The specific capability that this node operates on."""
 
 
 class CapabilityProtocol(Protocol):
@@ -67,13 +67,10 @@ class CapabilityProtocol(Protocol):
     instances and ensures that paths through the protocol graph adhere to the specified capability 
     constraints. This allows for modeling complex permission-based or role-based interaction flows 
     within the protocol.
-
-    Attributes:
-        name: The name of the protocol.
-        root: The root node of the protocol graph.
-        actors: The names of all actors involved in the protocol.
-        capabilities: The list of possible capability values in the protocol.
     """
+
+    capabilities: list[str]
+    """The list of possible capability values in the protocol."""
 
     def __init__(self, name: str):
         """Initializes a new `CapabilityProtocol` instance.
@@ -84,7 +81,7 @@ class CapabilityProtocol(Protocol):
 
         super().__init__(name)
 
-        self.capabilities: list[str] = []
+        self.capabilities = []
 
     def create_capability(self, capability: str, action: CapabilityAction) -> CapabilityNode:
         """Create a new `CapabilityNode` instance correctly initialized.
@@ -238,7 +235,8 @@ class CapabilityProtocol(Protocol):
                 pass
 
     def _check_capabilities(self, path: ProtocolPath) -> bool:
-        """Check if the given path is a valid path taking into account the capabilities required during its traversal.
+        """Check if the given path is a valid path taking into account the capabilities required 
+        during its traversal.
 
         Args:
             path: Path to check.

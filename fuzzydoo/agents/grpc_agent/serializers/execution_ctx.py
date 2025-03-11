@@ -20,6 +20,13 @@ class ExecutionContextSerializer:
 
         res = agent_pb2.ExecutionContext(path=ProtocolPathSerializer.serialize(ctx.path))
         res.protocol_name = ctx.protocol_name
+
+        if ctx.mutation_path is not None:
+            res.mutation_path = ctx.mutation_path
+
+        if ctx.mutator is not None:
+            res.mutator = ctx.mutator
+
         return res
 
     @staticmethod
@@ -37,7 +44,12 @@ class ExecutionContextSerializer:
                 `MessageNode` in the path.
         """
 
-        return ExecutionContext(ctx.protocol_name, ProtocolPathSerializer.deserialize(ctx.path))
+        res = ExecutionContext(ctx.protocol_name, ProtocolPathSerializer.deserialize(ctx.path))
+        if ctx.HasField('mutation_path'):
+            res.mutation_path = ctx.mutation_path
+        if ctx.HasField('mutator'):
+            res.mutator = ctx.mutator
+        return res
 
 
 __all__ = ["ExecutionContextSerializer"]
