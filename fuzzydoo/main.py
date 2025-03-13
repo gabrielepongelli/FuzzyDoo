@@ -536,18 +536,18 @@ def parse_run(conf: dict, err: Callable[[str], NoReturn]) -> dict[str, Any] | No
     for i, actor in enumerate(conf['actors']):
         err_prefix = f"actor {i + 1}: "
         custom_err = lambda msg: err(err_prefix + msg)
-        check_attr(actor, 'from', str, custom_err)
-        check_attr(actor, 'to', str, custom_err)
+        check_attr(actor, 'actor', str, custom_err)
+        check_attr(actor, 'as', str, custom_err)
 
-        actor_from = actor['from']
+        actor_from = actor['actor']
         for a in res['protocol'].actors:
             if actor_from.lower() == a.lower():
                 actor_from = a
                 break
         else:
-            custom_err(f"invalid protocol actor '{actor['from']}'")
+            custom_err(f"invalid protocol actor '{actor['actor']}'")
         for a, p in publishers:
-            if actor['to'] == a:
+            if actor['as'] == a:
                 actors[actor_from] = p
     res['actors'] = actors
 
