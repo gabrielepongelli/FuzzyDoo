@@ -1,7 +1,7 @@
 from typing import Any, override
 from random import Random
 
-from ...mutator import Mutator, Mutation, MutatorCompleted, mutates
+from ...mutator import Mutator, Mutation, MutatorCompleted, MutatorNotApplicable, mutates
 from ...proto.ngap.types import SequenceType
 
 
@@ -51,6 +51,8 @@ class SequenceLengthMutator(Mutator):
             possible_deltas = state['possible_deltas']
             mutator_state = state
         elif not self._possible_deltas:
+            if len(data.value) < self._DELTA:
+                raise MutatorNotApplicable()
             possible_deltas = []
             old_len = len(data.value)
             for new_len in range(old_len + 1, old_len + self._DELTA + 1):

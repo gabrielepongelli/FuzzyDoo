@@ -228,6 +228,8 @@ class BufferPartialContentMutator(Mutator):
             extracted_values = state['extracted_values']
             mutator_state = state
         else:
+            if len(data.value) == 0:
+                raise MutatorNotApplicable()
             extracted_values = self._extracted_values
             mutator_state = self._export_state()
 
