@@ -63,6 +63,9 @@ class Engine:
     stop_on_find: bool
     """Flag indicating whether to stop the fuzzing epoch upon finding a vulnerability."""
 
+    produce_findings_anyway: bool
+    """Flag indicating whether to produce findings even if no fault is detected."""
+
     wait_time_before_test_end: int
     """Seconds to wait before terminating a single test in case no message is received."""
 
@@ -84,6 +87,7 @@ class Engine:
                  max_attempts_of_test_redo: int,
                  max_test_cases_per_epoch: int,
                  stop_on_find: bool,
+                 produce_findings_anyway: bool,
                  wait_time_before_test_end: int):
         """Initialize the `Engine` class with the provided parameters.
 
@@ -102,6 +106,8 @@ class Engine:
             max_test_cases_per_epoch: Maximum number of test cases to be executed per epoch.
             stop_on_find: Flag indicating whether to stop the fuzzing epoch upon finding a 
                 vulnerability.
+            produce_findings_anyway: Flag indicating whether to produce findings even if no fault 
+                is detected.
             wait_time_before_test_end: Time to wait before terminating a single test in case no
                 message is received by `source` or by `target` (in seconds).
         """
@@ -116,6 +122,7 @@ class Engine:
         self.max_attempts_of_test_redo = max_attempts_of_test_redo
         self.max_test_cases_per_epoch = max_test_cases_per_epoch
         self.stop_on_find = stop_on_find
+        self.produce_findings_anyway = produce_findings_anyway
         self.wait_time_before_test_end = wait_time_before_test_end
         self.start_time = None
         self.end_time = None
@@ -774,8 +781,9 @@ class Engine:
                 except AgentError as e:
                     raise TestCaseExecutionError(str(e)) from e
 
-                if fault_detected:
-                    self._logger.info("Fault detected")
+                if fault_detected or self.produce_findings_anyway:
+                    if fault_detected:
+                        self._logger.info("Fault detected")
 
                     try:
                         data = self._agent.get_data()
@@ -783,7 +791,9 @@ class Engine:
                         raise TestCaseExecutionError(str(e)) from e
 
                     case_report = self._produce_case_report(path, mutation, data_to_mutate)
-                    self._save_findings([('report.yaml', case_report)] + data)
+                    data.append(('report.yaml', case_report))
+                    self._save_findings(data)
+                    self._logger.info("Data exported")
 
                 if delta >= self.wait_time_before_test_end:
                     break

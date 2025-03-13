@@ -27,6 +27,7 @@ DEFAULT_OUTPUT_DIR = Path.cwd() / 'out'
 DEFAULT_MAX_ATTEMPTS = 5
 DEFAULT_TESTS_PER_EPOCH = 40
 DEFAULT_STOP_ON_FIND = False
+DEFAULT_PRODUCE_FINDINGS_ANYWAY = False
 DEFAULT_MAX_WAIT_TIME = 60
 DEFAULT_LOG_LEVEL = 'info'
 
@@ -569,6 +570,10 @@ def parse_run(conf: dict, err: Callable[[str], NoReturn]) -> dict[str, Any] | No
     set_optional_config(src=conf, dst=res, src_name='stop_on_find',
                         dst_name='stop_on_find',
                         src_type=bool, default=DEFAULT_STOP_ON_FIND, err=err)
+
+    set_optional_config(src=conf, dst=res, src_name='produce_findings_anyway',
+                        dst_name='produce_findings_anyway',
+                        src_type=bool, default=DEFAULT_PRODUCE_FINDINGS_ANYWAY, err=err)
 
     set_optional_config(src=conf, dst=res, src_name='max_wait_time',
                         dst_name='wait_time_before_test_end',
