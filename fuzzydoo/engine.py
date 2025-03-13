@@ -13,7 +13,7 @@ import yaml
 from .protocol import Protocol, ProtocolPath, Message
 from .publisher import Publisher
 from .agent import AgentMultiplexer, Agent, ExecutionContext
-from .transformer import Encoder, Decoder
+from .transformer import Encoder, Decoder, Transformer
 from .mutator import Fuzzable, Mutation, Mutator, MutatorCompleted, MutatorNotApplicable
 from .utils.other import opened_w_error
 
@@ -790,8 +790,17 @@ class Engine:
                     except AgentError as e:
                         raise TestCaseExecutionError(str(e)) from e
 
+                    transformers: list[Transformer] = list(
+                        {t.__class__: t for t in self.encoders + self.decoders}.values())
+                    for t in transformers:
+                        new_data = t.export_data()
+                        for i, record in enumerate(new_data):
+                            new_data[i] = (t.__class__.__name__ + "." + record[0], record[1])
+                        data.extend(new_data)
+
                     case_report = self._produce_case_report(path, mutation, data_to_mutate)
                     data.append(('report.yaml', case_report))
+
                     self._save_findings(data)
                     self._logger.info("Data exported")
 

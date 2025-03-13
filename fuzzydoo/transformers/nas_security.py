@@ -1,4 +1,5 @@
 import binascii
+import base64
 from typing import override
 
 from pycrate_mobile.NAS5G import parse_NAS5G
@@ -309,3 +310,12 @@ class NASSecurity(Encoder, Decoder):
             return msg.parse(final_msg.to_bytes())
         except (PycrateErr, MessageParsingError) as e:
             raise EncodingError(str(e)) from e
+
+    @override
+    def export_data(self) -> list[tuple[str, bytes]]:
+        res = ""
+        res += f"CIPHERING_ALGORITHM={self.ciphering_algorithm}\n"
+        res += f"INTEGRITY_ALGORITHM={self.integrity_algorithm}\n"
+        res += f"K_NAS_ENC={base64.b64encode(self.k_nas_enc)}\n"
+        res += f"K_NAS_INT={base64.b64encode(self.k_nas_int)}\n"
+        return [("enc_and_int_params.txt", res.encode())]

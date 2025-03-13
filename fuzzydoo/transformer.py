@@ -58,6 +58,15 @@ class Transformer(ABC):
         """
 
     @abstractmethod
+    def export_data(self) -> list[tuple[str, bytes]]:
+        """Get any data used for the transformations.
+
+        Returns:
+            list[tuple[str, bytes]]: A list of tuples containing the name of the data and its 
+                content.
+        """
+
+    @abstractmethod
     def reset(self):
         """Reset any internal state or resources used by the transformer.
 
