@@ -1,4 +1,5 @@
 import threading
+import asyncio
 from dataclasses import fields
 from typing import override, TypeVar
 
@@ -169,5 +170,55 @@ def with_thread_safe_get_set(cls: DataclassT) -> DataclassT:
     return cls
 
 
-__all__ = ['EventStoppableThread',
-           'ExceptionRaiserThread', 'with_thread_safe_get_set']
+class AsyncioThreadSafeEvent(asyncio.Event):
+    """A thread-safe version of `asyncio.Event` for use across different threads.
+
+    This class extends the standard `asyncio.Event` to provide thread-safe `set` and `clear`
+    operations. It ensures that these operations are executed in a thread-safe manner by using
+    the `call_soon_threadsafe` method of the event loop.
+
+    Note:
+        While `set` and `clear` are thread-safe, other methods inherited from `asyncio.Event`
+        (like `wait`) should still be called from within the event loop's thread.
+
+    Example:
+        >>> import asyncio
+        >>> import threading
+        >>> 
+        >>> event = AsyncioThreadSafeEvent()
+        >>> 
+        >>> async def waiter():
+        ...     print("Waiting for event...")
+        ...     await event.wait()
+        ...     print("Event set!")
+        >>> 
+        >>> def setter():
+        ...     print("Setting event from another thread")
+        ...     event.set()
+        >>> 
+        >>> async def main():
+        ...     loop = asyncio.get_running_loop()
+        ...     wait_task = loop.create_task(waiter())
+        ...     threading.Thread(target=setter).start()
+        ...     await wait_task
+        >>> 
+        >>> asyncio.run(main())
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._loop = asyncio.get_event_loop()
+
+    def set(self):
+        self._loop.call_soon_threadsafe(super().set)
+
+    def clear(self):
+        self._loop.call_soon_threadsafe(super().clear)
+
+
+__all__ = [
+    'EventStoppableThread',
+    'ExceptionRaiserThread',
+    'with_thread_safe_get_set',
+    'AsyncioThreadSafeEvent'
+]

@@ -33,7 +33,7 @@ dev-install:
 # install the package
 install: build
 	for number in ./dist/*.whl; do \
-		pip install "$${number}[network-sniffer,network-proxy]" ; \
+		pip install "$${number}[network-sniffer,network-proxy,network-function-proxy]" ; \
 	done
 
 # install the package without agents dependencies

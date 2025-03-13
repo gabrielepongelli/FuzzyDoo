@@ -1,3 +1,4 @@
+import subprocess
 from threading import RLock
 from typing import Any, Iterable, Sequence
 
@@ -81,3 +82,56 @@ def ngap_to_aper_unsafe(msg: ASN1Obj, modified_paths: Iterable[Sequence]) -> byt
                 setattr(modded_obj, key, value)
 
         return result
+
+
+def container_to_addresses(container_name: str, network_name: str) -> tuple[str, str] | None:
+    """Retrieves the IP and MAC addresses of a Docker container within a specified network.
+
+    Args:
+        container_name: The name of the Docker container.
+        network_name: The name of the Docker network.
+
+    Returns:
+        tuple[str, str] | None: A tuple containing the IP address and MAC address of the container 
+            if found, otherwise `None`.
+    """
+
+    ip_filter = '{{with index .NetworkSettings.Networks ' + f'"{network_name}"' \
+        + '}}{{.IPAddress}} {{.MacAddress}}{{end}}'
+    try:
+        inspect_cmd = subprocess.run(
+            args=['docker', 'inspect', '-f', ip_filter, container_name],
+            check=True, capture_output=True, encoding='utf8')
+    except subprocess.CalledProcessError:
+        return None
+
+    if addresses := inspect_cmd.stdout.strip():
+        addresses = addresses.split()
+        if len(addresses) == 2:
+            return tuple(addresses)
+    return None
+
+
+def ip_to_container(ip: str, network_name: str) -> str | None:
+    """Retrieves the name of a Docker container based on its IP address within a specified network.
+
+    Args:
+        ip: The IP address of the Docker container.
+        network_name: The name of the Docker network to search within.
+
+    Returns:
+        str | None: The name of the container if found, otherwise `None`.
+    """
+
+    name_filter = '{{range .Containers}}{{if eq .IPv4Address "' + ip \
+        + '"}}{{.Name}}{{end}}{{end}}'
+    try:
+        inspect_cmd = subprocess.run(
+            args=['docker', 'network', 'inspect', '-f', name_filter, network_name],
+            check=True, capture_output=True, encoding='utf8')
+    except subprocess.CalledProcessError:
+        return None
+
+    if name := inspect_cmd.stdout.strip():
+        return name
+    return None
