@@ -1,6 +1,6 @@
 [project]
 name = "fuzzydoo"
-version = "0.2.0"
+version = "0.7.0"
 description = "A Mutation-Based Structure-Aware Fuzzer for 5G Core Networks"
 authors = [{ name = "Gabriele Pongelli", email = "pongelligabriele@gmail.com" }]
 readme = "README.md"
@@ -65,4 +65,5 @@ network-sniffer = 'fuzzydoo.agents.network_sniffer:main'
 ueransim-controller = 'fuzzydoo.agents.ueransim_controller:main'
 network-proxy = 'fuzzydoo.agents.network_proxy:main'
 network-function-proxy = 'fuzzydoo.agents.network_function_proxy:main'
+command-exec = 'fuzzydoo.agents.command_exec:main'
 fuzzydoo = 'fuzzydoo.main:main'
