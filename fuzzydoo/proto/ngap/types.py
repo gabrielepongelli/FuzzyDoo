@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Type, Any, override, TypeVar
+from typing import Generic, Type, override, TypeVar
 
 from pycrate_core.utils_py3 import PycrateErr
 from pycrate_asn1rt.asnobj import ASN1Obj
@@ -13,7 +13,10 @@ from ...utils.network import ngap_modify_safety_checks, PYCRATE_NGAP_STRUCT_LOCK
 from ...utils.errs import *
 
 
-class ASN1Type(Fuzzable):
+DataT = TypeVar('DataT')
+
+
+class ASN1Type(Fuzzable, Generic[DataT]):
     """A wrapper class for PyCrate ASN.1 types, providing a unified interface for fuzzing 
     operations.
 
@@ -26,7 +29,7 @@ class ASN1Type(Fuzzable):
         Subclasses may provide additional type-specific functionality.
     """
 
-    def __init__(self, content: ASN1Obj, path: list[str], parent):
+    def __init__(self, content: ASN1Obj, path: list[str], parent: Fuzzable):
         """Initialize a new instance of `ASN1Type`.
 
         Args:
@@ -41,20 +44,20 @@ class ASN1Type(Fuzzable):
         self._parent: Fuzzable = parent
 
     @property
-    def value(self):
+    def value(self) -> DataT:
         """The value represented by this ASN.1 type."""
 
         with PYCRATE_NGAP_STRUCT_LOCK:
             return self._content.get_val()
 
     @property
-    def possible_values(self) -> list:
+    def possible_values(self) -> list[DataT]:
         """The possible values for this ASN.1 type specified by its constraints."""
 
         return []
 
     @value.setter
-    def value(self, new_value):
+    def value(self, new_value: "ASN1Type | DataT"):
         if isinstance(new_value, type(self)):
             new_value = new_value.value
 
@@ -109,12 +112,12 @@ class ASN1Type(Fuzzable):
                 f"Root entity '{self.name}' does not match path '{qname}'")
 
         if len(parts) == 1:
-            return self.value
+            return self
 
         raise ContentNotFoundError(f"No content at the path '{qname}' exists in this type")
 
     @override
-    def set_content(self, qname: str, value: Any):
+    def set_content(self, qname: str, value: DataT):
         parts = qname.split(".")
 
         if parts[0] != self.name:
@@ -170,7 +173,7 @@ def map_type(type_to_map: Type[ASN1Obj]) -> Type[ASN1Type]:
 
 @mutable
 @mapped(basic.NULL)
-class NullType(ASN1Type):
+class NullType(ASN1Type[None]):
     """ASN.1 basic type NULL object.
 
     ASN.1 basic type NULL object. It has only one possible value, which is `int(0)`.
@@ -183,7 +186,7 @@ class NullType(ASN1Type):
 
 @mutable
 @mapped(basic.BOOL)
-class BoolType(ASN1Type):
+class BoolType(ASN1Type[bool]):
     """ASN.1 basic type BOOLEAN object.
 
     ASN.1 basic type BOOLEAN object. Its values are of type `bool`.
@@ -192,7 +195,7 @@ class BoolType(ASN1Type):
 
 @mutable
 @mapped(basic.INT)
-class IntType(ASN1Type):
+class IntType(ASN1Type[int]):
     """ASN.1 basic type INTEGER object.
 
     ASN.1 basic type INTEGER object. Its values are of type `int`.
@@ -226,7 +229,7 @@ class IntType(ASN1Type):
 
     @override
     @property
-    def possible_values(self) -> list:
+    def possible_values(self):
         value_constraints: setobj.ASN1Set | None = self.constraints.get('val', None)
         if value_constraints is None:
             return []
@@ -252,7 +255,7 @@ class IntType(ASN1Type):
 
 @mutable
 @mapped(basic.REAL)
-class RealType(ASN1Type):
+class RealType(ASN1Type[tuple[int, int | None, int | None]]):
     """ASN.1 basic type REAL object.
 
     ASN.1 basic type REAL object. Its values are of type `tuple[int, int, int]` with the following 
@@ -270,7 +273,7 @@ class RealType(ASN1Type):
 
 @mutable
 @mapped(basic.ENUM)
-class EnumType(ASN1Type):
+class EnumType(ASN1Type[str]):
     """ASN.1 basic type ENUMERATED object.
 
     ASN.1 basic type ENUMERATED object. Its values are of type `str` and must correspond to one of 
@@ -279,7 +282,7 @@ class EnumType(ASN1Type):
 
     @override
     @property
-    def possible_values(self) -> list:
+    def possible_values(self):
         with PYCRATE_NGAP_STRUCT_LOCK:
             # pylint: disable=protected-access
             return list(self._content._cont_rev.values())
@@ -304,13 +307,13 @@ class RelOIDType(ASN1Type):
 
 
 @mutable
-class SequenceType(ASN1Type):
+class SequenceType(ASN1Type[DataT], Generic[DataT]):
     """Represents a generic sequential type for handling collections of elements."""
 
 
 @mutable
 @mapped(string.BIT_STR)
-class BitStrType(ASN1Type):
+class BitStrType(ASN1Type[tuple[int, int]]):
     """ASN.1 basic type BIT STRING object.
 
     ASN.1 basic type BIT STRING object. Its values are of type `tuple[int, int]` with the following 
@@ -348,7 +351,7 @@ class BitStrType(ASN1Type):
 
 @mutable
 @mapped(string.OCT_STR)
-class OctStrType(SequenceType):
+class OctStrType(SequenceType[bytes]):
     """ASN.1 basic type OCTET STRING object.
 
     ASN.1 basic type OCTET STRING object. Its values are of type `bytes`.
@@ -381,7 +384,7 @@ class OctStrType(SequenceType):
         return sizes
 
 
-class BaseStringType(SequenceType):
+class BaseStringType(SequenceType[str]):
     """Generic class for basic string types."""
 
     @property
@@ -545,7 +548,7 @@ class StrBmpType(BaseStringType):
 
 @mutable
 @mapped(string.TIME_UTC)
-class TimeUTCType(ASN1Type):
+class TimeUTCType(ASN1Type[tuple[str, str, str, str, str, str | None, str]]):
     """ASN.1 basic type UTCTime object.
 
     ASN.1 basic type UTCTime object. Its values are of type `tuple[str, str, str, str, str, str|None, str]`
@@ -557,7 +560,7 @@ class TimeUTCType(ASN1Type):
 
 @mutable
 @mapped(string.TIME_GEN)
-class TimeGenType(ASN1Type):
+class TimeGenType(ASN1Type[tuple[str, str, str, str, str | None, str | None, str | None, str]]):
     """ASN.1 basic type GeneralizedTime object.
 
     ASN.1 basic type GeneralizedTime object. Its values are of type 

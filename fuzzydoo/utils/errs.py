@@ -104,6 +104,14 @@ class SetupFailedError(FuzzingEngineError):
 class TestCaseExecutionError(FuzzingEngineError):
     """Exception raised when an error occurs during test case execution."""
 
+    recoverable: bool
+    """Whether this error can be recovered or not."""
+
+    def __init__(self, message: str, recoverable: bool):
+        super().__init__(message)
+
+        self.recoverable = recoverable
+
 
 ############################################################################################
 #######################               Transformer Errors             #######################

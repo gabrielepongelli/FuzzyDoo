@@ -2,6 +2,8 @@ import json
 from typing import override
 
 import grpc
+from google.protobuf.any_pb2 import Any
+from google.protobuf.wrappers_pb2 import StringValue, BoolValue, BytesValue, Int32Value, UInt32Value, Int64Value, UInt64Value
 
 from ...agent import Agent, ExecutionContext
 from .serializers import ExecutionContextSerializer
@@ -30,7 +32,9 @@ class GrpcClientAgent(Agent):
         super().__init__(name, wait_start_time, **kwargs)
 
         self._channel = grpc.insecure_channel(
-            f"{kwargs['ip']}:{kwargs['port']}")
+            f"{kwargs['ip']}:{kwargs['port']}",
+            options=[('grpc.max_receive_message_length', -1), ('grpc.max_send_message_length', -1)]
+        )
         self._stub = AgentServiceStub(self._channel)
 
     @override
@@ -71,7 +75,7 @@ class GrpcClientAgent(Agent):
             raise AgentError(response.error)
 
     @override
-    def get_supported_paths(self, protocol: str) -> list[list[str]]:
+    def get_supported_paths(self, protocol: str) -> list[list[dict[str, str | bool]]]:
         try:
             # pylint: disable=no-member
             response = self._stub.getSupportedPaths(
@@ -91,8 +95,66 @@ class GrpcClientAgent(Agent):
 
         res = []
         for path in response.data.protocol_paths.paths:
-            res.append(list(path.messages))
+            p = []
+            for message in path.messages:
+                msg = {}
+                key: str
+                any_value: Any
+                for key, any_value in message.message.items():
+                    if any_value.Is(StringValue.DESCRIPTOR):
+                        value = StringValue()
+                    elif any_value.Is(BoolValue.DESCRIPTOR):
+                        value = BoolValue()
+                    elif any_value.Is(BytesValue.DESCRIPTOR):
+                        value = BytesValue()
+                    elif any_value.Is(UInt32Value.DESCRIPTOR):
+                        value = UInt32Value()
+                    elif any_value.Is(UInt64Value.DESCRIPTOR):
+                        value = UInt64Value()
+                    elif any_value.Is(Int32Value.DESCRIPTOR):
+                        value = Int32Value()
+                    elif any_value.Is(Int64Value.DESCRIPTOR):
+                        value = Int64Value()
+                    else:
+                        raise AgentError(f"Unknown value received: {any_value.value}")
+                    any_value.Unpack(value)
+                    msg[key] = value.value
+                p.append(msg)
+            res.append(p)
         return res
+
+    @override
+    def on_epoch_start(self, ctx: ExecutionContext):
+        data = ExecutionContextSerializer.serialize(ctx)
+
+        try:
+            # pylint: disable=no-member
+            response = self._stub.onEpochStart(
+                agent_pb2.RequestMessage(ctx=data))
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
+
+    @override
+    def on_epoch_end(self):
+        try:
+            # pylint: disable=no-member
+            response = self._stub.onEpochEnd(agent_pb2.RequestMessage())
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
 
     @override
     def on_test_start(self, ctx: ExecutionContext):
@@ -131,23 +193,21 @@ class GrpcClientAgent(Agent):
     def get_data(self) -> list[tuple[str, bytes]]:
         try:
             # pylint: disable=no-member
-            response = self._stub.getData(agent_pb2.RequestMessage())
+            res = []
+            for response in self._stub.getData(agent_pb2.RequestMessage()):
+                if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+                    if not response.HasField('error'):
+                        raise AgentError("Unknown error")
+                    raise AgentError(response.error)
+
+                if not response.HasField('data') or not response.data.HasField('test_data'):
+                    raise AgentError("Unknown result")
+
+                record = response.data.test_data
+                res.append((record.name, record.content))
         except grpc.RpcError as e:
             raise AgentError(f"gRPC error: {e}") from e
 
-        # pylint: disable=no-member
-        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
-            if not response.HasField('error'):
-                raise AgentError("Unknown error")
-
-            raise AgentError(response.error)
-
-        if not response.HasField('data') or not response.data.HasField('test_data'):
-            return AgentError("Unknown result")
-
-        res = []
-        for record in response.data.test_data.records:
-            res.append((record.name, record.content))
         return res
 
     @override
@@ -192,6 +252,21 @@ class GrpcClientAgent(Agent):
             return AgentError("Unknown result")
 
         return response.flag
+
+    @override
+    def on_redo(self):
+        try:
+            # pylint: disable=no-member
+            response = self._stub.onRedo(agent_pb2.RequestMessage())
+        except grpc.RpcError as e:
+            raise AgentError(f"gRPC error: {e}") from e
+
+        # pylint: disable=no-member
+        if response.status == agent_pb2.ResponseMessage.Status.ERROR:
+            if not response.HasField('error'):
+                raise AgentError("Unknown error")
+
+            raise AgentError(response.error)
 
     @override
     def fault_detected(self) -> bool:

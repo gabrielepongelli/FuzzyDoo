@@ -342,7 +342,7 @@ class AperEntity:
         if isinstance(entity, INT):
             if entity._const_val is None:
                 return 0
-            return len(entity.get_val().to_bytes())
+            return ceil(entity.get_val().bit_length() / 8)
 
         length: int
         if isinstance(entity, BIT_STR):

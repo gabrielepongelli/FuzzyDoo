@@ -1,4 +1,4 @@
-from typing import override, Any, Type, TypeVar, cast
+from typing import override, Type, TypeVar, cast, Generic
 from collections.abc import Callable
 
 from pycrate_core.elt import Atom
@@ -10,7 +10,10 @@ from ...utils.network import nas_disable_safety_checks
 from ...utils.errs import *
 
 
-class AtomicType(Fuzzable):
+DataT = TypeVar('DataT')
+
+
+class AtomicType(Fuzzable, Generic[DataT]):
     """A wrapper class for PyCrate `Atom` types, providing a unified interface for fuzzing 
     operations.
 
@@ -45,7 +48,7 @@ class AtomicType(Fuzzable):
 
         return self._content.get_val()
 
-    def _value_setter(self, new_value):
+    def _value_setter(self, new_value: "AtomicType | DataT"):
         """Function called by the property `value`."""
 
         if isinstance(new_value, type(self)):
@@ -53,17 +56,17 @@ class AtomicType(Fuzzable):
         self._content.set_val(new_value)
 
     @property
-    def value(self):
+    def value(self) -> DataT:
         """The value represented by this atomic type."""
 
         return self._value_getter()
 
     @value.setter
-    def value(self, new_value):
+    def value(self, new_value: "AtomicType | DataT"):
         self._value_setter(new_value)
 
     @property
-    def possible_values(self) -> list:
+    def possible_values(self) -> list[DataT]:
         """The possible values for this atomic type."""
 
         # pylint: disable=protected-access
@@ -105,12 +108,12 @@ class AtomicType(Fuzzable):
                 f"Root entity '{self.name}' does not match path '{qname}'")
 
         if len(parts) == 1:
-            return self.value
+            return self
 
         raise ContentNotFoundError(f"No content at the path '{qname}' exists in this type")
 
     @override
-    def set_content(self, qname: str, value: Any):
+    def set_content(self, qname: str, value: DataT):
         parts = qname.split(".")
 
         if parts[0] != self.name:
@@ -171,13 +174,13 @@ def map_type(type_to_map: Type[Atom]) -> Type[AtomicType]:
 
 
 @mutable
-class SequenceType(AtomicType):
+class SequenceType(AtomicType[DataT], Generic[DataT]):
     """Represents a generic sequential type for handling collections of elements."""
 
 
 @mutable
 @mapped(base.Buf)
-class BufferType(SequenceType):
+class BufferType(SequenceType[bytes]):
     """Represents an atomic buffer type for handling binary data.
 
     The `BufferType` class is a specialized subclass of `AtomicType` designed to manage binary data
@@ -195,7 +198,7 @@ class BufferType(SequenceType):
 
 @mutable
 @mapped(base.String)
-class StringType(SequenceType):
+class StringType(SequenceType[str]):
     """Represents an atomic string type for handling textual data.
 
     The `StringType` class is a specialized subclass of `AtomicType` designed to manage string data
@@ -218,7 +221,7 @@ class StringType(SequenceType):
 
 
 @mutable
-class NumericType(AtomicType):
+class NumericType(AtomicType[int]):
     """Represents a generic numeric type."""
 
     @override

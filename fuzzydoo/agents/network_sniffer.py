@@ -83,6 +83,16 @@ class NetworkSnifferAgent(GrpcClientAgent):
                 - `'iface'`: The name of the interface or a list of interface names to capture.
                 - `'filter'` (optional): String specifying a filter to apply to the data being 
                     logged. See ![here](https://biot.com/capstats/bpf.html). Defaults to `None`.
+                - `'restart_on_epoch'` (optional): Whether the sniffer should be started and 
+                        stopped respectively at the beginning and at the end of every epoch. Defaults to `False`.
+                - `'restart_on_test'` (optional): Whether the sniffer should be started and stopped 
+                        respectively at the beginning and at the end of every test case or not. 
+                        Defaults to `False`.
+                - `'restart_on_redo'` (optional): Whether the sniffer should be restarted before 
+                        re-performing a test case or not. Defaults to `False`.
+                - `'restart_on_fault'` (optional): Whether the sniffer should be restarted at the 
+                        end of a test case after a fault has been found or not (even if 
+                        `restart_on_test` is set to `False`). Defaults to `False`.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -101,10 +111,6 @@ class NetworkSnifferAgent(GrpcClientAgent):
     @override
     def fault_detected(self) -> bool:
         return False
-
-    @override
-    def on_fault(self):
-        return
 
     @override
     def stop_execution(self) -> bool:
@@ -137,12 +143,16 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
     Note: This agent needs root privileges in order to work properly.
     """
 
-    DEFAULT_OPTIONS: dict[str, str | list[str] | None] = {
+    DEFAULT_OPTIONS: dict[str, str | list[str] | bool | None] = {
         'iface': None,
-        'filter': None
+        'filter': None,
+        'restart_on_epoch': False,
+        'restart_on_test': False,
+        'restart_on_redo': False,
+        'restart_on_fault': False,
     }
 
-    options: dict[str, str | list[str] | None]
+    options: dict[str, str | list[str] | bool | None]
     """Options currently set on the agent."""
 
     def __init__(self, **kwargs):
@@ -152,24 +162,30 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
         self.set_options(**kwargs)
 
         self._sniffer: SnifferThread | None = None
+        self._fault_detected: bool = False
 
     @override
     def set_options(self, **kwargs):
-        if 'iface' in kwargs:
-            self.options['iface'] = kwargs['iface']
-            logging.info('Set %s = %s', 'iface', self.options['iface'])
+        for key, val in kwargs.items():
+            if key not in self.options:
+                continue
 
-        if 'filter' in kwargs:
-            self.options['filter'] = kwargs['filter']
-            logging.info('Set %s = %s', 'filter', self.options['filter'])
+            self.options[key] = val
+            logging.info('Set %s = %s', key, val)
 
     @override
     def reset(self):
         self.options = dict(self.DEFAULT_OPTIONS)
         self._sniffer = None
+        self._fault_detected = False
 
-    @override
-    def on_test_start(self, ctx: ExecutionContext):
+    def _start_procedure(self):
+        """Start the packet sniffer.
+
+        Raises:
+            AgentError: If the interface is not specified, not found, or the filter is invalid.
+        """
+
         if self.options['iface'] is None:
             err_msg = "Interface not specified"
             logging.error(err_msg)
@@ -201,7 +217,13 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
         self._sniffer = SnifferThread(self.options['iface'], self.options['filter'])
         self._sniffer.start()
 
-    def _stop_thread(self):
+    def _stop_procedure(self):
+        """Stop the packet sniffer.
+
+        Raises:
+            AgentError: If an exception occurred during the sniffer's execution.
+        """
+
         if self._sniffer is not None:
             self._sniffer.join(timeout=0.1)
             if self._sniffer.is_alive():
@@ -215,8 +237,35 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
             self._sniffer = None
 
     @override
+    def on_epoch_start(self, ctx: ExecutionContext):
+        if self.options['restart_on_epoch'] and self._sniffer is None:
+            self._start_procedure()
+
+    @override
+    def on_epoch_end(self):
+        if self.options['restart_on_epoch']:
+            self._stop_procedure()
+
+    @override
+    def on_test_start(self, ctx: ExecutionContext):
+        if (self.options['restart_on_test'] or self._fault_detected) and self._sniffer is None:
+            self._fault_detected = False
+            self._start_procedure()
+
+    @override
     def on_test_end(self):
-        self._stop_thread()
+        if self.options['restart_on_test'] or self._fault_detected:
+            self._stop_procedure()
+
+    @override
+    def on_redo(self):
+        if self.options['restart_on_redo']:
+            self._stop_procedure()
+            self._start_procedure()
+
+    @override
+    def on_fault(self):
+        self._fault_detected = self.options['restart_on_fault']
 
     @override
     def get_data(self) -> list[tuple[str, bytes]]:
@@ -247,7 +296,7 @@ class NetworkSnifferServerAgent(GrpcServerAgent):
 
     @override
     def on_shutdown(self):
-        self._stop_thread()
+        self._stop_procedure()
 
 
 __all__ = ['NetworkSnifferAgent']
@@ -268,8 +317,7 @@ def main():
         sys.stderr.write("Error: No IP address and port specified\n")
         sys.exit(1)
 
-    logging.basicConfig(level=logging.DEBUG,
-                        format="[%(levelname)s] - %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] - %(message)s")
 
     agent = NetworkSnifferServerAgent(address=args.ip, port=args.port)
 

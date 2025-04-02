@@ -5,48 +5,48 @@ from .aper import AperPreambleBaseMutator, AperLengthBaseMutator
 
 
 @mutates(NGAPMessage)
-class MessageAperPreambleRandomMutator(AperPreambleBaseMutator):
+class MessageAperPreambleRandomMutator(AperPreambleBaseMutator[NGAPMessage]):
     """Mutator for `NGAPMessage` objects that generate random values for the APER preamble."""
 
-    ATTRIBUTE_NAME = 'message_type_preamble'
+    FIELD_NAME = 'message_type_preamble'
 
 
 @mutates(NGAPMessage)
-class MessageAperContentLengthRandomMutator(AperLengthBaseMutator):
+class MessageAperContentLengthRandomMutator(AperLengthBaseMutator[NGAPMessage]):
     """Mutator for `NGAPMessage` objects that generate random values for the APER length of the 
     content without requiring some fragmentation."""
 
-    ATTRIBUTE_NAME = 'message_value_length'
+    FIELD_NAME = 'message_value_length'
 
     GENERATION_RANGE = (0, AperEntity.DETERMINANT_SIZES[0])
 
 
 @mutates(NGAPMessage)
-class MessageAperFragmentedContentLengthRandomMutator(AperLengthBaseMutator):
+class MessageAperFragmentedContentLengthRandomMutator(AperLengthBaseMutator[NGAPMessage]):
     """Mutator for `NGAPMessage` objects that generate random values for the APER length of the 
     content such that it requires fragmentation."""
 
-    ATTRIBUTE_NAME = 'message_value_length'
+    FIELD_NAME = 'message_value_length'
 
     GENERATION_RANGE = (AperEntity.DETERMINANT_SIZES[0], AperEntity.DETERMINANT_SIZES[-1])
 
 
 @mutates(NGAPMessage)
-class MessageAperIEsNumberRandomMutator(AperLengthBaseMutator):
+class MessageAperIEsNumberRandomMutator(AperLengthBaseMutator[NGAPMessage]):
     """Mutator for `NGAPMessage` objects that generate random values for the APER field 
     representing the number of IEs in the message without requiring some fragmentation."""
 
-    ATTRIBUTE_NAME = 'n_ies'
+    FIELD_NAME = 'n_ies'
 
     GENERATION_RANGE = (0, AperEntity.DETERMINANT_SIZES[0])
 
 
 @mutates(NGAPMessage)
-class MessageAperFragmentedIEsNumberRandomMutator(AperLengthBaseMutator):
+class MessageAperFragmentedIEsNumberRandomMutator(AperLengthBaseMutator[NGAPMessage]):
     """Mutator for `NGAPMessage` objects that generate random values for the APER field 
     representing the number of IEs in the message such that it requires fragmentation."""
 
-    ATTRIBUTE_NAME = 'n_ies'
+    FIELD_NAME = 'n_ies'
 
     GENERATION_RANGE = (AperEntity.DETERMINANT_SIZES[0], AperEntity.DETERMINANT_SIZES[-1])
 

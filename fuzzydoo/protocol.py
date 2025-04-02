@@ -4,6 +4,8 @@ from typing import Generic, TypeVar, override, Any
 from collections.abc import Callable, Iterator
 from enum import Flag, auto
 
+from more_itertools import first_true
+
 from .mutator import Fuzzable, mutable
 from .utils.graph import Graph, Node, Edge, Path
 from .utils.register import ClassRegister
@@ -129,12 +131,12 @@ class Message(Fuzzable, Generic[InnerT]):
         """
 
 
-@dataclass
+@dataclass(eq=False)
 class ProtocolNode(Node):
     """A graph node specific for the `Protocol` class."""
 
 
-@dataclass
+@dataclass(eq=False)
 class MessageNode(Node):
     """A graph node that contains a message."""
 
@@ -188,7 +190,7 @@ class EdgeTag(Flag):
     occur after the source message."""
 
 
-@dataclass
+@dataclass(eq=False, init=False)
 class ProtocolEdge(Edge[ProtocolNode]):
     """A graph edge specific for the `Protocol` class."""
 
@@ -228,6 +230,9 @@ class ProtocolPath(Path[ProtocolNode, ProtocolEdge]):
     """The name of the actor to be used in the path. If is `None`, then an iteration over this an 
     instance of this class returns all the nodes in the path regardless of who sent/received them."""
 
+    optional: bool | None
+    """Whether the current message is optional or not, or `None` if the iteration isn't started yet."""
+
     def __init__(self, path: list[ProtocolEdge], actor: str | None = None):
         """Initializes a new instance of the `ProtocolPath` class .
 
@@ -239,7 +244,21 @@ class ProtocolPath(Path[ProtocolNode, ProtocolEdge]):
         super().__init__(path)
 
         self.pos = None
+        self.optional = None
         self.actor = actor
+
+    def _is_next(self, e: ProtocolEdge) -> bool:
+        """Checks if the current edge contains the next node in to be visited."""
+
+        return isinstance(e.dst, MessageNode) and (self.actor is None or self.actor in {e.dst.src, e.dst.dst})
+
+    @property
+    def next(self) -> MessageNode | None:
+        """The next message in the path, or `None` if the iteration is finished."""
+
+        path = self.path if self.pos is None else self.path[self.pos + 1:]
+        res = first_true(path, default=None, pred=self._is_next)
+        return res.dst if res is not None else None
 
     @property
     def names(self) -> list[str]:
@@ -252,18 +271,121 @@ class ProtocolPath(Path[ProtocolNode, ProtocolEdge]):
                 res.append(edge.dst.msg.name)
         return res
 
+    @property
+    def optional_positions(self) -> set[int]:
+        """The indexes of the messages that are optional inside the path."""
+
+        return set(i for i, edge in enumerate(self.path) if EdgeTag.OPTIONAL in edge.tags)
+
     @override
     def __str__(self) -> str:
-        return self.actor + ':' + '.'.join(str(edge.id) for edge in self.path)
+        actor = self.actor + ':' if actor is not None else ''
+        return actor + '.'.join(str(edge.id) for edge in self.path)
 
     @override
     def __iter__(self) -> Iterator[MessageNode]:
         for pos, edge in enumerate(self.path):
             self.pos = pos
-            if isinstance(edge.dst, MessageNode) \
-                    and (self.actor is None or self.actor in {edge.dst.src, edge.dst.dst}):
+            self.optional = EdgeTag.OPTIONAL in edge.tags
+            if self._is_next(edge):
                 yield edge.dst
-        self.pos = None
+        self.pos = self.optional = None
+
+
+class PathValidator:
+    """A validator for checking if a sequence of messages matches a path."""
+
+    def __init__(self, path: ProtocolPath):
+        """Initializes a new `PathValidator` instance.
+
+        Args:
+            path: The path on which to validate incoming messages.
+        """
+
+        self._expected_sequence: list[MessageNode] = list(n for n in path)
+        self._optional_positions: set[int] = path.optional_positions
+        self._valid_positions: set[int] = {0}
+
+    def process(self, msg: Message, src: str, dst: str) -> bool:
+        """Processes a new message.
+
+        Args:
+            msg: The new message to be processed.
+            src: The name of the actor that sent the message.
+            dst: The name of the actor that received the message.
+
+        Returns:
+            bool: `True` if the message is valid and the sequence can continue, `False` otherwise.
+        """
+
+        next_positions: set[int] = set()
+
+        for pos in self._valid_positions:
+            stack = [pos]
+            visited: set[int] = set()
+
+            while stack:
+                msg_idx = stack.pop()
+                if msg_idx in visited:
+                    continue
+                visited.add(msg_idx)
+
+                if msg_idx < len(self._expected_sequence) and msg_idx in self._optional_positions:
+                    # skip optional message
+                    stack.append(msg_idx + 1)
+
+                if msg_idx < len(self._expected_sequence) \
+                        and self._expected_sequence[msg_idx].msg.name == msg.name \
+                        and self._expected_sequence[msg_idx].src == src \
+                        and self._expected_sequence[msg_idx].dst == dst:
+                    # the input message matches the expected message
+                    next_positions.add(msg_idx + 1)
+
+        if not next_positions:
+            return False  # no valid way to continue
+
+        self._valid_positions = next_positions
+        return True
+
+    def is_complete(self) -> bool:
+        """Checks if the expected sequence has been fully respected, considering optional elements.
+
+        Returns:
+            bool: `True` if the sequence is complete and valid, `False` otherwise.
+        """
+
+        for pos in self._valid_positions:
+            idx = pos
+            while idx < len(self._expected_sequence) and idx in self._optional_positions:
+                idx += 1
+            if idx == len(self._expected_sequence):
+                return True
+        return False
+
+    def next_expected_messages(self) -> set[MessageNode]:
+        """Get the names of the next possible valid messages based on the messages already processed.
+
+        Returns:
+            set[MessageNode]: The possible next messages.
+        """
+
+        next_inputs: set[MessageNode] = set()
+        for pos in self._valid_positions:
+            i = pos
+            visited: set[int] = set()
+            stack: list[int] = [i]
+            while stack:
+                msg_idx = stack.pop()
+                if msg_idx in visited:
+                    continue
+                visited.add(msg_idx)
+                if msg_idx < len(self._expected_sequence):
+                    if msg_idx in self._optional_positions:
+                        # skip optional element
+                        stack.append(msg_idx + 1)
+                    # add the possible next input
+                    next_inputs.add(self._expected_sequence[msg_idx])
+        return next_inputs
 
 
 class Protocol(Graph[ProtocolNode, ProtocolEdge, ProtocolPath]):
@@ -502,34 +624,104 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge, ProtocolPath]):
                     if all(tag_filter(edge.tags) for edge in subpath.path):
                         yield subpath
 
-    def build_path(self, path: list[str] | str) -> ProtocolPath | None:
-        """Build a path from a given string representation.
+    def build_path(self, records: list[dict[str, str | bool]]) -> ProtocolPath | None:
+        """Build a valid path from a given list of message records.
+
+        Args:
+            records: A list of items, each of them representing a message. Each item must be a 
+                dictionary in the following form:
+                ```
+                {
+                    "name": str,
+                    "src": str,
+                    "dst": str,
+                    "optional": bool
+                }
+                ```
+                Where:
+                - `"name"` is the name of a message.
+                - `"src"` is the source actor of the message.
+                - `"dst"` is the destination actor of the message.
+                - `"optional"` indicates whether the message is optional or not.
+
+        Returns:
+            ProtocolPath | None: The new path, or `None` if the path is not a valid path in the 
+                protocol.
+
+        Raises:
+            UnknownMessageError: If some message name does not correspond to a real message in the 
+                protocol.
+        """
+
+        if not self.get_path(records):
+            return None
+
+        nodes: dict[int, MessageNode] = {}
+        path: list[ProtocolEdge] = []
+        src_node = ProtocolNode(0)
+        for r in records:
+            key = hash(r['name'] + r['src'] + r['dst']) % 2**64
+            if key in nodes:
+                dst_node = nodes[key]
+            else:
+                msg = Message.from_name(self.name, r['name'])
+                dst_node = MessageNode(id=key, src=r['src'], dst=r['dst'], msg=msg)
+                nodes[r['name'] + r['src'] + r['dst']] = dst_node
+
+            tags = EdgeTag.SEQUENCE
+            if r['optional']:
+                tags |= EdgeTag.OPTIONAL
+
+            edge = ProtocolEdge(src=src_node, dst=dst_node, tags=tags)
+            path.append(edge)
+
+            src_node = dst_node
+
+        return ProtocolPath(path)
+
+    def get_path(self, path: list[dict[str, str | bool]] | str) -> ProtocolPath | None:
+        """Retrieve a path in the protocol graph.
 
         Args:
             path: It can be in 2 formats:
-                1. A string representation in the format "actor:id.id.id...".
-                2. A list of message names. In this case the first path matching all the names is 
-                    chosen.
+                1. A string representation in the format `"actor:id.id.id..."` where:
+                    - `actor` is the name of an actor in the protocol.
+                    - `id` is the id of an existing edge in the protocol.
+                2. A list of items, each of them representing a message. Each item must be a 
+                    dictionary in the following form:
+                    ```
+                    {
+                        "name": str,
+                        "src": str,
+                        "dst": str,
+                        "optional": bool
+                    }
+                    ```
+                    Where:
+                    - `"name"` is the name of a message.
+                    - `"src"` is the source actor of the message.
+                    - `"dst"` is the destination actor of the message.
+                    - `"optional"` indicates whether the message is optional or not.
+                    In this case the first path matching all the names is chosen.
 
         Returns:
-            ProtocolPath: The built path.
-            None: If no valid path exists.
+            ProtocolPath | None: The path found, or `None` if no valid path exists.
         """
 
         if isinstance(path, str):
-            return self._build_path_from_str(path)
-        else:
-            return self._build_path_from_names(path)
+            return self._get_path_from_str(path)
+        return self._get_path_from_list(path)
 
-    def _build_path_from_str(self, path: str) -> ProtocolPath | None:
-        """Build a path from a given string representation.
+    def _get_path_from_str(self, path: str) -> ProtocolPath | None:
+        """Retrieve a path from a given string representation.
 
         Args:
-            path: String representation of the path.
+            path: A string representation in the format `"actor:id.id.id..."` where:
+                - `actor` is the name of an actor in the protocol.
+                - `id` is the id of an existing edge in the protocol.
 
         Returns:
-            ProtocolPath: The built path.
-            None: If no valid path exists.
+            ProtocolPath | None: The path found, or `None` if no valid path exists.
         """
 
         actor, path = path.split(':')
@@ -545,15 +737,29 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge, ProtocolPath]):
 
         return ProtocolPath(path_edges, actor)
 
-    def _build_path_from_names(self, names: list[str]) -> ProtocolPath | None:
-        """Build a path in the protocol graph based on a sequence of message names.
+    def _get_path_from_list(self, records: list[dict[str, str | bool]]) -> ProtocolPath | None:
+        """Retrieve a path in the protocol graph based on a list of message records.
 
         Args:
-            names: List of message names to search as a path.
+            records: A list of items, each of them representing a message. Each item must be a 
+                dictionary in the following form:
+                ```
+                {
+                    "name": str,
+                    "src": str,
+                    "dst": str,
+                    "optional": bool
+                }
+                ```
+                Where:
+                - `"name"` is the name of a message.
+                - `"src"` is the source actor of the message.
+                - `"dst"` is the destination actor of the message.
+                - `"optional"` indicates whether the message is optional or not.
 
         Returns:
-            ProtocolPath: The first valid path if found.
-            None: If no valid path exists matching the sequence.
+            ProtocolPath | None: The first valid path found, or `None` if no valid path exists 
+                matching the sequence.
         """
 
         # this keeps track of the message index in the current recursive call
@@ -564,20 +770,26 @@ class Protocol(Graph[ProtocolNode, ProtocolEdge, ProtocolPath]):
 
         def skip_edge(edge: ProtocolEdge) -> bool:
             # if it is a MessageNode it has a message with a name that can be compared to
-            return isinstance(edge.dst, MessageNode) and edge.dst.msg.name != names[msg_idx_stack[-1]]
+            return isinstance(edge.dst, MessageNode) \
+                and (edge.dst.msg.name != records[msg_idx_stack[-1]]['name']
+                     or (edge.dst.src != records[msg_idx_stack[-1]]['src'])
+                     or (edge.dst.dst != records[msg_idx_stack[-1]]['dst'])
+                     or (records[msg_idx_stack[-1]]['optional']
+                         and EdgeTag.OPTIONAL not in edge.tags))
 
         def yield_path(edge: ProtocolEdge) -> bool:
             # prepare the stack for the next recursion
             msg_idx_stack.append(msg_idx_stack[-1])
 
             if isinstance(edge.dst, MessageNode):
-                # since we know that edge.dst.msg.name == names[msg_idx_stack[-2]] (because
-                # otherwise we would have skipped this edge) we can increment the new message index
+                # since we know that edge.dst.msg.name == records[msg_idx_stack[-2]]['name']
+                # (because otherwise we would have skipped this edge) we can increment the new
+                # message index
                 msg_idx_stack[-1] += 1
 
-            # if we reached the last element of the names' list, if they are equal we finally
+            # if we reached the last element of the records' list, if they are equal we finally
             # found a path
-            return msg_idx_stack[-1] == len(names)
+            return msg_idx_stack[-1] == len(records)
 
         def on_exit(_):
             # since if we enter in another recursion level, we always push something on the stack

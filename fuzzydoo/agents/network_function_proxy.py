@@ -10,7 +10,7 @@ import asyncio
 import time
 import re
 import io
-from typing import Sequence, override, Any, cast
+from typing import Sequence, override, Any
 from collections.abc import Callable
 from ipaddress import ip_network
 from pathlib import Path
@@ -25,81 +25,27 @@ import mitmproxy
 import mitmproxy.ctx
 from mitmproxy.tools.dump import DumpMaster
 from mitmproxy.options import Options
-from mitmproxy.proxy import commands, context, events, layer, layers, mode_specs
+from mitmproxy.proxy import layer, layers
 from mitmproxy.certs import Cert
-from mitmproxy import http, tls
+from mitmproxy import http, tls, tcp
+from mitmproxy.http import status_codes
+from mitmproxy.addons.dumper import Dumper
 from openapi_core import OpenAPI
 from openapi_core.contrib.requests import RequestsOpenAPIRequest, RequestsOpenAPIResponse
 from openapi_core.exceptions import OpenAPIError
-from openapi_spec_validator.validation.exceptions import OpenAPIValidationError
 from scapy.all import Packet, wrpcap, Ether, IP, TCP  # pylint: disable=no-name-in-module
+from scapy.contrib import http2
+from dotenv import dotenv_values
+from more_itertools import first_true
 
 from ..agent import Agent, ExecutionContext
 from ..utils.threads import EventStoppableThread, with_thread_safe_get_set, AsyncioThreadSafeEvent
 from ..utils.register import register
 from ..utils.network import container_to_addresses
-from ..utils.other import first_true, run_as_root
+from ..utils.other import run_as_root
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 from ..utils.errs import *
-
-
-class MyHttpLayer(layers.HttpLayer):
-    """Custom HTTP layer that supports HTTP/2 prior knowledge connections.
-
-    This class extends the mitmproxy HttpLayer to handle HTTP/2 connections that use the prior 
-    knowledge mode, where the client immediately starts with the HTTP/2 protocol without first 
-    negotiating via HTTP/1.1 or TLS ALPN.
-
-    The class overrides the `_handle_event` method to properly manage HTTP/2 connections when 
-    `prior_knowledge` is `True`, allowing for direct HTTP/2 communication without the usual 
-    protocol negotiation step.
-    """
-
-    prior_knowledge: bool
-    """Indicates whether this layer is handling an HTTP/2 prior knowledge connection."""
-
-    def __init__(self, ctx: context.Context, mode: layers.http.HTTPMode, prior_knowledge: bool = False):
-        super().__init__(ctx, mode)
-        self.prior_knowledge = prior_knowledge
-
-    @override
-    def _handle_event(self, event: events.Event):
-        if not self.prior_knowledge:
-            yield from super()._handle_event(event)
-        elif isinstance(event, events.Start):
-            # pylint: disable=protected-access
-            http_conn = layers.http._http2.Http2Server(self.context.fork())
-            self.connections.setdefault(self.context.client, http_conn)
-            yield from self.event_to_child(self.connections[self.context.client], event)
-            if self.mode is layers.http.HTTPMode.upstream:
-                proxy_mode = self.context.client.proxy_mode
-                assert isinstance(proxy_mode, mode_specs.UpstreamMode)
-                self.context.server.via = (proxy_mode.scheme, proxy_mode.address)
-        elif isinstance(event, events.ConnectionEvent):
-            # pylint: disable=protected-access
-            if (
-                event.connection == self.context.server
-                and self.context.server not in self.connections
-            ):
-                # We didn't do anything with this connection yet, now the peer is doing something.
-                if isinstance(event, events.ConnectionClosed):
-                    # The peer has closed it - let's close it too!
-                    yield commands.CloseConnection(event.connection)
-                elif isinstance(event, (events.DataReceived, layers.quic._events.QuicStreamEvent)):
-                    # The peer has sent data or another connection activity occurred.
-                    # This can happen with HTTP/2 servers that already send a settings frame.
-                    child_layer = layers.http._http2.Http2Client(self.context.fork())
-                    self.connections[self.context.server] = child_layer
-                    yield from self.event_to_child(child_layer, events.Start())
-                    yield from self.event_to_child(child_layer, event)
-                else:
-                    raise AssertionError(f"Unexpected event: {event}")
-            else:
-                handler = self.connections[event.connection]
-                yield from self.event_to_child(handler, event)
-        else:
-            yield from super()._handle_event(event)
 
 
 @with_thread_safe_get_set
@@ -171,31 +117,6 @@ class ContainerAddressGetter(EventStoppableThread):
                 break
 
 
-class PriorKnowledgeSupportAddon:
-    """Addon for mitmproxy to support HTTP/2 prior knowledge connections.
-
-    This addon modifies the behavior of mitmproxy to handle HTTP/2 connections that use the 
-    prior knowledge mode. In this mode, the client starts communication using HTTP/2 directly 
-    without the usual HTTP/1.1 or TLS ALPN negotiation.
-    """
-
-    def next_layer(self, data: layer.NextLayer):
-        if not isinstance(data.layer, layers.HttpLayer):
-            return
-
-        preface = b'PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n'
-        data_client = data.data_client()
-        if len(data_client) < len(preface):
-            return
-
-        if data_client[:len(preface)] == preface:
-            data.layer = MyHttpLayer(
-                data.context,
-                cast(layers.HttpLayer, data.layer).mode,
-                prior_knowledge=True
-            )
-
-
 class IgnoreClientConnectionAddon:
     """Addon for mitmproxy to ignore connections from specified client hosts.
 
@@ -221,6 +142,437 @@ class IgnoreClientConnectionAddon:
                     ignore=not mitmproxy.ctx.options.show_ignored_hosts
                 )
                 break
+
+
+class Http2OverlayAddon:
+    """An addon for mitmproxy that provides enhanced HTTP/2 support and processing capabilities.
+
+    This addon intercepts and processes HTTP/2 traffic, allowing for detailed inspection and 
+    analysis of HTTP/2 streams. It maintains session information for each connection and handles 
+    various HTTP/2 frame types, including SETTINGS, HEADERS, DATA, and PUSH_PROMISE frames.
+
+    If other custom addons need to place hooks for HTTP/2 requests and responses, they must be 
+    added to the addon list of this addon instead of adding them directly to the mitmproxy master.
+
+    Note:
+        This addon is designed to work on top of mitmproxy's TCP layer, replacing the default HTTP 
+        layer provided by mitmproxy.
+
+    Example:
+        Here's how to use the `Http2OverlayAddon` with mitmproxy:
+
+        ```python
+        from mitmproxy.tools.dump import DumpMaster
+        from mitmproxy.options import Options
+        from fuzzydoo.agents.network_function_proxy import Http2OverlayAddon
+
+        class OtherAddon:
+            def request(self, flow: http.HttpFlow):
+                # ....
+
+            def response(self, flow: http.HttpFlow):
+                # ....
+
+        opts = Options(
+            listen_host='0.0.0.0',
+            listen_port=8080,
+            tcp_hosts=[".*"] # to make sure that every flow is processed as a TCP flow
+        )
+        m = DumpMaster(opts)
+
+        http2_addon = Http2OverlayAddon(
+            addons=[OtherAddon()]  # add your custom addons here
+        )
+
+        m.addons.add(http2_addon)
+
+        try:
+            m.run()
+        except KeyboardInterrupt:
+            m.shutdown()
+        ```
+
+        This example sets up mitmproxy with the Http2OverlayAddon, allowing it to intercept and 
+        process HTTP/2 traffic on port 8080.
+    """
+
+    addons: list[object]
+    """A list of additional addons to be applied to the HTTP/2 layer."""
+
+    dumper: Dumper | None
+    """A dumper object for logging purposes."""
+
+    def __init__(self, addons: list[object] | None = None, dumper: Dumper | None = None):
+        """Initialize the Http2OverlayAddon.
+
+        Args:
+            addons (optional): A list of additional addon objects to be used with this 
+                Http2OverlayAddon. Defaults to `[]`.
+            dumper (optional): A Dumper object for logging purposes. Defaults to `None`.
+        """
+
+        self.addons = addons or []
+        self.dumper = dumper
+
+        self._sessions: dict[Any, dict[str, Any]] = {}
+
+    def _get_sessions_key(self, client: tuple[str, int], server: tuple[str, int]) -> Any:
+        """Get a session key to use for the client-server pair specified.
+
+        Args:
+            client: A tuple containing the client IP address and port.
+            server: A tuple containing the server IP address and port.
+
+        Returns:
+            Any: The session key.
+        """
+
+        return (client[0], client[1], server[0], server[1])
+
+    def tcp_start(self, flow: tcp.TCPFlow):
+        skey = self._get_sessions_key(flow.client_conn.peername, flow.server_conn.peername)
+        self._sessions[skey] = {
+            'server': {
+                'ip': flow.server_conn.peername[0],
+                'port': flow.server_conn.peername[1],
+                'max_header_table_size': 4096,
+                'header_table_size': 4096,
+                'header_table': None
+            },
+            'client': {
+                'ip': flow.client_conn.peername[0],
+                'port': flow.client_conn.peername[1],
+                'max_header_table_size': 4096,
+                'header_table_size': 4096,
+                'header_table': None
+            },
+            'http2': None,
+            'streams': {},
+        }
+
+    def _create_stream(self, session: dict[str, Any], stream_id: int, request_ref: int | None = None) -> dict[str, Any]:
+        """Create a new stream entry in the session's streams dictionary.
+
+        This function initializes a new stream with the given stream ID in the provided session. If 
+        a request reference is provided, it increments the reference count for the existing 
+        request. Otherwise, it initializes a new request structure.
+
+        Args:
+            session: The session dictionary where the stream will be added.
+            stream_id: The unique identifier for the stream to be created.
+            request_ref (optional): An optional reference to an existing request. If provided, the 
+                reference count for the request is incremented. Defaults to `None`.
+
+        Returns:
+            dict[str, Any]: The newly created stream dictionary containing request and response
+                structures, along with metadata such as the number of ends, reference count, and
+                cancellation status.
+        """
+
+        if request_ref is not None:
+            request = request_ref
+        else:
+            request = {
+                'method': '',
+                'path': '',
+                'authority': '',
+                'scheme': '',
+                'headers': {},
+                'data': b""
+            }
+
+        stream = {
+            'n_ends': 0,
+            'cancelled': False,
+            'request': request,
+            'response': {
+                'status': '',
+                'headers': {},
+                'data': b""
+            },
+            'mitmproxy_flow': None
+        }
+
+        session['streams'][stream_id] = stream
+        return stream
+
+    def _handle_settings_frame(self, frame: http2.H2Frame, session: dict[str, Any], src_name: str):
+        """Handle an HTTP/2 SETTINGS frame and update the session's settings accordingly.
+
+        This function processes the SETTINGS frame received from a source (client or server) and
+        updates the session's settings based on the settings specified in the frame.
+
+        Args:
+            frame: The HTTP/2 frame containing the SETTINGS payload to be processed.
+            session: The session dictionary that holds the current state and settings for the 
+                HTTP/2 connection.
+            src_name: The name of the source (either `'client'` or `'server'`) from which the
+                SETTINGS frame was received.
+        """
+
+        src: dict[str, Any] = session[src_name]
+
+        for setting in frame.payload.settings:
+            if setting.id == http2.H2Setting.SETTINGS_HEADER_TABLE_SIZE:
+                src['max_header_table_size'] = setting.value
+                src['header_table_size'] = setting.value
+                src['header_table'] = None
+
+    def _handle_headers_frame(self, frame: http2.H2Frame, session: dict[str, Any], src_name: str, stream_id: int | None = None):
+        """Handle an HTTP/2 HEADERS frame and update the session's stream with the parsed headers.
+
+        This function processes the HEADERS frame received from a source (client or server) and
+        updates the corresponding stream in the session with the parsed headers.
+
+        Args:
+            frame: The HTTP/2 frame containing the HEADERS payload to be processed.
+            session: The session dictionary that holds the current state and streams for the HTTP/2 
+                connection.
+            src_name: The name of the source (either `'client'` or `'server'`) from which the
+                HEADERS frame was received.
+            stream_id (optional): An optional stream ID to be used for the headers instead of the 
+                one contained in the frame. If not provided, the frame's stream ID is used. 
+                Defaults to `None`.
+        """
+
+        src: dict[str, Any] = session[src_name]
+
+        try:
+            src['header_table_size'] = frame.payload.hdrs.getfieldval('max_size')
+        except AttributeError:
+            pass
+
+        hdr_table: http2.HPackHdrTable | None = src['header_table']
+        if hdr_table is None:
+            hdr_table = http2.HPackHdrTable(
+                dynamic_table_max_size=src['header_table_size'],
+                dynamic_table_cap_size=src['max_header_table_size']
+            )
+            src['header_table'] = hdr_table
+
+        stream_id = frame.stream_id if stream_id is None else stream_id
+        stream: dict[str, Any] = session['streams'][stream_id]
+        msg: dict[str, Any] = stream['request'] if src_name == 'client' else stream['response']
+        text = hdr_table.gen_txt_repr(frame)
+        for line in text.splitlines():
+            if line[0] == ':':
+                k, *val = line.split(' ')
+                msg[k[1:]] = " ".join(val)
+            else:
+                h, *val = line.split(': ')
+                msg['headers'][h] = ": ".join(val)
+
+    def _handle_data_frame(self, frame: http2.H2Frame, session: dict[str, Any], src_name: str):
+        """Handle an HTTP/2 DATA frame and update the session's stream with the received data.
+
+        This function processes the DATA frame received from a source (client or server) and 
+        appends the frame's payload data to the corresponding message (request or response) in the 
+        session's stream.
+
+        Args:
+            frame: The HTTP/2 frame containing the DATA payload to be processed.
+            session: The session dictionary that holds the current state and streams for the HTTP/2 
+                connection.
+            src_name: The name of the source (either `'client'` or `'server'`) from which the DATA 
+                frame was received.
+        """
+
+        stream: dict[str, Any] = session['streams'][frame.stream_id]
+        msg: dict[str, Any] = stream['request'] if src_name == 'client' else stream['response']
+        try:
+            msg['data'] += frame.payload.data
+        except AttributeError:
+            pass
+
+    def _handle_push_promise_frame(self, frame: http2.H2Frame, session: dict[str, Any], src_name: str):
+        """Handle an HTTP/2 PUSH_PROMISE frame and create a new stream for the promised request.
+
+        This function processes a PUSH_PROMISE frame, creates a new stream for the promised request,
+        and handles the headers contained within the frame.
+
+        Args:
+            frame: The HTTP/2 frame containing the PUSH_PROMISE payload to be processed.
+            session: The session dictionary that holds the current state and streams for the HTTP/2 
+                connection.
+            src_name: The name of the source (either `'client'` or `'server'`) from which the
+                PUSH_PROMISE frame was received.
+        """
+
+        self._create_stream(session, frame.payload.stream_id, request_ref=frame.stream_id)
+        self._handle_headers_frame(frame, session, src_name, stream_id=frame.payload.stream_id)
+
+    def _create_mitmproxy_flow(self, tcp_flow: tcp.TCPFlow, session: dict[str, Any], stream_id: int) -> http.HTTPFlow:
+        """Create a mitmproxy HTTP flow from a TCP flow and session information.
+
+        Args:
+            tcp_flow: The TCP flow containing connection information.
+            session: A dictionary containing session information, including streams and requests.
+            stream_id: The ID of the stream for which to create the HTTP flow.
+
+        Returns:
+            http.HTTPFlow: A newly created HTTP flow object.
+        """
+
+        stream: dict[str, Any] = session['streams'][stream_id]
+
+        req: dict[str, Any] = stream['request']
+        if isinstance(req, int):
+            req = session['streams'][req]
+
+        method: str = req['method']
+        scheme: str = req['scheme']
+        authority: str = req['authority']
+        path: str = req['path']
+
+        headers = http.Headers(
+            (
+                k.encode("utf-8", "surrogateescape"),
+                v.encode("utf-8", "surrogateescape")
+            )
+            for k, v in req['headers'].items()
+        )
+
+        http_flow = http.HTTPFlow(tcp_flow.client_conn, tcp_flow.server_conn)
+        http_flow.request = http.Request(
+            tcp_flow.server_conn.peername[0],
+            tcp_flow.server_conn.peername[1],
+            method.encode("utf-8", "surrogateescape"),
+            scheme.encode("utf-8", "surrogateescape"),
+            authority.encode("utf-8", "surrogateescape"),
+            path.encode("utf-8", "surrogateescape"),
+            b"HTTP/2.0",
+            headers,
+            req['data'],
+            None,
+            time.time(),
+            time.time()
+        )
+        stream['mitmproxy_flow'] = http_flow
+
+        return http_flow
+
+    def _add_mitmproxy_response(self, session: dict[str, Any], stream_id: int):
+        """Add a mitmproxy response to the specified HTTP/2 stream in the session.
+
+        This method creates and adds a mitmproxy HTTP response object to the existing HTTP flow for the given stream. It uses the response data stored in the session to construct the 
+        mitmproxy response.
+
+        Args:
+            session: A dictionary containing the session information, including streams and their 
+                associated data.
+            stream_id: The ID of the stream for which to add the response.
+        """
+
+        stream: dict[str, Any] = session['streams'][stream_id]
+
+        status_code = int(stream['response']['status'])
+
+        headers = http.Headers(
+            (
+                k.encode("utf-8", "surrogateescape"),
+                v.encode("utf-8", "surrogateescape")
+            )
+            for k, v in stream['response']['headers'].items()
+        )
+
+        http_flow: http.HTTPFlow = stream['mitmproxy_flow']
+        http_flow.response = http.Response(
+            b"HTTP/2.0",
+            status_code,
+            status_codes.RESPONSES.get(status_code, "").encode(),
+            headers,
+            stream['response']['data'],
+            None,
+            time.time(),
+            time.time()
+        )
+
+    def tcp_message(self, flow: tcp.TCPFlow):
+        skey = self._get_sessions_key(flow.client_conn.peername, flow.server_conn.peername)
+        session = self._sessions[skey]
+        msg = flow.messages[-1]
+        src_name = 'client' if msg.from_client else 'server'
+
+        msg_content: bytes = msg.content
+        if session['http2'] is None:
+            if flow.client_conn.alpn is not None:
+                session['http2'] = flow.client_conn.alpn == 'h2'
+            elif msg.from_client:
+                session['http2'] = msg_content.startswith(http2.H2_CLIENT_CONNECTION_PREFACE)
+                if session['http2']:
+                    msg_content = msg_content[len(http2.H2_CLIENT_CONNECTION_PREFACE):]
+                    if len(msg_content) == 0:
+                        return
+
+        if session['http2'] is not None and not session['http2']:
+            # ignore non-http2 connections
+            return
+
+        frame_seq = http2.H2Seq(msg_content)
+        if not isinstance(frame_seq.frames[0], http2.H2Frame):
+            session['http2'] = False
+            return
+
+        frame: http2.H2Frame
+        for frame in frame_seq.frames:
+            if 'A' in frame.flags:
+                # is an ACK frame so we can ignore it
+                continue
+
+            if frame.stream_id not in session['streams']:
+                self._create_stream(session, frame.stream_id)
+            stream: dict[str, Any] = session['streams'][frame.stream_id]
+
+            if frame.type == http2.H2SettingsFrame.type_id:
+                self._handle_settings_frame(frame, session, src_name)
+            elif frame.type in {http2.H2HeadersFrame.type_id, http2.H2ContinuationFrame.type_id}:
+                self._handle_headers_frame(frame, session, src_name)
+            elif frame.type == http2.H2DataFrame.type_id:
+                self._handle_data_frame(frame, session, src_name)
+            elif frame.type == http2.H2PushPromiseFrame.type_id:
+                self._handle_push_promise_frame(frame, session, src_name)
+            elif frame.type == http2.H2ResetFrame.type_id:
+                stream['cancelled'] = True
+
+            if 'ES' in frame.flags:
+                # the stream is ended by this peer
+                stream['n_ends'] += 1
+
+            if stream['n_ends'] == 1 \
+                    and not isinstance(stream['request'], int) \
+                    and stream['mitmproxy_flow'] is None:
+                http_flow = self._create_mitmproxy_flow(flow, session, frame.stream_id)
+
+                for addon in self.addons:
+                    try:
+                        if hasattr(addon, 'request'):
+                            addon.request(http_flow)
+                    except Exception as e:
+                        logging.getLogger().exception("Addon error: %s", e)
+            elif stream['n_ends'] == 2 \
+                    or (stream['n_ends'] == 1 and isinstance(stream['request'], int)):
+                if stream['mitmproxy_flow'] is None:
+                    http_flow = self._create_mitmproxy_flow(flow, session, frame.stream_id)
+                self._add_mitmproxy_response(session, frame.stream_id)
+
+                http_flow: http.HTTPFlow = stream['mitmproxy_flow']
+                if self.dumper:
+                    self.dumper.echo_flow(http_flow)
+
+                for addon in self.addons:
+                    try:
+                        if hasattr(addon, 'response'):
+                            addon.response(http_flow)
+                    except Exception as e:
+                        logging.getLogger().exception("Addon error: %s", e)
+
+    def tcp_end(self, flow: tcp.TCPFlow):
+        skey = self._get_sessions_key(flow.client_conn.peername, flow.server_conn.peername)
+        del self._sessions[skey]
+
+    def tcp_error(self, flow: tcp.TCPFlow):
+        skey = self._get_sessions_key(flow.client_conn.peername, flow.server_conn.peername)
+        del self._sessions[skey]
 
 
 class OpenAPICheckerAddon:
@@ -442,9 +794,8 @@ class TLSCustomCertAddon:
 class PCAPExportAddon:
     """An addon for mitmproxy that captures and exports network traffic in PCAP format.
 
-    This addon intercepts HTTP requests and responses, converts them into network packets,
-    and stores them for later export as a PCAP file. It maintains the correct sequence of
-    packets and handles both the request and response phases of HTTP communications.
+    This addon intercepts TCP data, converts them into network packets, and stores them for later 
+    export as a PCAP file.
     """
 
     containers: dict[str, ContainerInfo]
@@ -458,7 +809,20 @@ class PCAPExportAddon:
         self.packets = []
         self._sessions: dict[str, dict[str, Any]] = {}
 
-    def _add_packet(self, src: tuple[str, int], dst: tuple[str, int], content: bytes):
+    def _get_sessions_key(self, client: tuple[str, int], server: tuple[str, int]) -> Any:
+        """Get a session key to use for the client-server pair specified.
+
+        Args:
+            client: A tuple containing the client IP address and port.
+            server: A tuple containing the server IP address and port.
+
+        Returns:
+            Any: The session key.
+        """
+
+        return (client[0], client[1], server[0], server[1])
+
+    def _add_packet(self, session: dict[str, Any], from_client: bool, content: bytes):
         """Add a network packet to the list of captured packets.
 
         This function constructs a network packet using the provided source and destination
@@ -471,48 +835,55 @@ class PCAPExportAddon:
             content: The content of the packet to be added.
         """
 
-        src_key = (src[0], src[1], dst[0], dst[1])
-        session = self._sessions.get(src_key, None)
-        if session is None:
-            session = {'seq': 1}
-            self._sessions[src_key] = session
-        seq = session['seq']
+        if from_client:
+            src = session['client']
+            dst = session['server']
+        else:
+            src = session['server']
+            dst = session['client']
+
+        if dst['seq'] != src['ack']:
+            ack = src['ack'] = dst['seq']
+        else:
+            ack = None
 
         l2 = Ether()
-        l3 = IP(src=src[0], dst=dst[0])
-        l4 = TCP(sport=src[1], dport=dst[1], flags=0, seq=seq)
+        l3 = IP(src=src['ip'], dst=dst['ip'])
+        l4 = TCP(sport=src['port'], dport=dst['port'], flags=0, seq=src['seq'], ack=ack)
         packet = l2 / l3 / l4 / content
         self.packets.append(packet)
-        session['seq'] = seq + len(content)
+        src['seq'] = (src['seq'] + len(content)) % 2**32
 
-    def request(self, flow: http.HTTPFlow):
-        req = flow.request
-        proto = f'{req.method} {req.path} {req.http_version}\r\n'
-        payload = bytearray()
-        payload.extend(proto.encode('ascii'))
-        payload.extend(bytes(req.headers))
-        payload.extend(b'\r\n')
-        payload.extend(req.raw_content)
+    def tcp_start(self, flow: tcp.TCPFlow):
+        skey = self._get_sessions_key(flow.client_conn.peername, flow.server_conn.peername)
+        self._sessions[skey] = {
+            'server': {
+                'ip': flow.server_conn.peername[0],
+                'port': flow.server_conn.peername[1],
+                'seq': 1,
+                'ack': 1
+            },
+            'client': {
+                'ip': flow.client_conn.peername[0],
+                'port': flow.client_conn.peername[1],
+                'seq': 1,
+                'ack': 1
+            }
+        }
 
-        self._add_packet(flow.client_conn.peername, flow.server_conn.peername, bytes(payload))
+    def tcp_message(self, flow: tcp.TCPFlow):
+        skey = self._get_sessions_key(flow.client_conn.peername, flow.server_conn.peername)
+        session = self._sessions[skey]
+        msg = flow.messages[-1]
+        self._add_packet(session, msg.from_client, msg.content)
 
-    def response(self, flow: http.HTTPFlow):
-        res = flow.response
-        headers = res.headers.copy()
-        if res.http_version.startswith('HTTP/2'):
-            headers.setdefault('content-length', str(len(res.raw_content)))
-            proto = f'{res.http_version} {res.status_code}\r\n'
-        else:
-            headers.setdefault('Content-Length', str(len(res.raw_content)))
-            proto = f'{res.http_version} {res.status_code} {res.reason}\r\n'
+    def tcp_end(self, flow: tcp.TCPFlow):
+        skey = self._get_sessions_key(flow.client_conn.peername, flow.server_conn.peername)
+        del self._sessions[skey]
 
-        payload = bytearray()
-        payload.extend(proto.encode('ascii'))
-        payload.extend(bytes(headers))
-        payload.extend(b'\r\n')
-        payload.extend(res.raw_content)
-
-        self._add_packet(flow.server_conn.peername, flow.client_conn.peername, bytes(payload))
+    def tcp_error(self, flow: tcp.TCPFlow):
+        skey = self._get_sessions_key(flow.client_conn.peername, flow.server_conn.peername)
+        del self._sessions[skey]
 
     def export(self) -> bytes:
         """Export captured network packets in PCAP format.
@@ -570,9 +941,8 @@ class ThreadedMitmProxy(threading.Thread):
 
         self._master = DumpMaster(Options(), loop=self._loop)
 
-        self._user_addons = user_addons
-        self._master.addons.add(*user_addons)
-        self._master.addons.remove(self._master.addons.get('DisableH2C'.lower()))
+        self._user_addons = []
+        self.add_addons(*user_addons)
 
         # set the options after the addons since some options depend on addons
         self._master.options.update(**options)
@@ -673,6 +1043,11 @@ class ThreadedMitmProxy(threading.Thread):
             *addons: Variable length argument list of addon objects to be added.
         """
 
+        dumper: Dumper = self._master.addons.get('Dumper'.lower())
+        for addon in addons:
+            if hasattr(addon, 'dumper'):
+                setattr(addon, 'dumper', dumper)
+
         self._user_addons.extend(addons)
         self._master.addons.add(*addons)
 
@@ -699,7 +1074,7 @@ class ThreadedMitmProxy(threading.Thread):
         self._ignored = []
         self.update_options(ignore_hosts=list(self._ignored), mode=[])
         for addon in self._user_addons:
-            self._master.addons.remove(self._master.addons.get(addon.__class__.__name__.lower()))
+            self._master.addons.remove(addon)
         self._user_addons = []
 
 
@@ -719,9 +1094,11 @@ class NetworkFunctionProxyAgent(GrpcClientAgent):
                 - `'compose_yaml_path'`: The path to the `docker-compose.yaml` file.
                 - `'network_name'`: The name of the network inside the docker compose file that 
                         will be monitored.
-                - `'certs_path'`: The path of a directory containing all the TLS certificates that 
-                        will be used. Each certificate must be in pem format, and its name must be 
-                        the name of the network function whose certificate belongs to.
+                - `'certs_path'` (optional): The path of a directory containing all the TLS 
+                        certificates that will be used. Each certificate must be in pem format, and 
+                        its name must be the name of the network function whose certificate belongs 
+                        to. If not provided, no TLS connection will be analyzed. No value is 
+                        provided as default.
                 - `'exclude'` (optional): A list of strings representing the names of the 
                         containers that will be excluded from the monitoring process.
                 - `'proxy_port'` (optional): An integer representing the TCP port on which the 
@@ -730,6 +1107,17 @@ class NetworkFunctionProxyAgent(GrpcClientAgent):
                         specification files on which NFs' requests and responses will be checked. 
                         If not provided, the adherence to the OpenAPI specification will be 
                         skipped. No value is provided as default.
+                - `'restart_on_epoch'` (optional): Whether the proxy should be started and stopped 
+                        respectively at the beginning and at the end of every epoch. Defaults to 
+                        `False`.
+                - `'restart_on_test'` (optional): Whether the proxy should be started and stopped 
+                        respectively at the beginning and at the end of every test case or not. 
+                        Defaults to `False`.
+                - `'restart_on_redo'` (optional): Whether the proxy should be restarted before 
+                        re-performing a test case or not. Defaults to `False`.
+                - `'restart_on_fault'` (optional): Whether the proxy should be restarted at the end 
+                        of a test case after a fault has been found or not (even if 
+                        `restart_on_test` is set to `False`). Defaults to `False`.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -744,10 +1132,6 @@ class NetworkFunctionProxyAgent(GrpcClientAgent):
     @override
     def redo_test(self) -> bool:
         return False
-
-    @override
-    def on_fault(self):
-        return
 
     @override
     def stop_execution(self) -> bool:
@@ -802,8 +1186,16 @@ class TlsCertLoader(EventStoppableThread):
                 with open(p, 'rb') as f:
                     pem_cert = f.read()
 
-                if pem_cert.startswith(b'-----BEGIN CERTIFICATE-----') \
-                        and pem_cert.endswith(b'-----END CERTIFICATE-----\n'):
+                # if pem_cert.startswith(b'-----BEGIN CERTIFICATE-----') \
+                #        and pem_cert.endswith(b'-----END CERTIFICATE-----\n'):
+                #    c = Cert.from_pem(pem_cert)
+                #    self.certs[p.name] = c
+                #    logging.getLogger().warning('Loaded certificate at %s', p)
+                # else:
+                #    logging.getLogger().warning('Invalid certificate at %s', p)
+
+                if b'-----BEGIN CERTIFICATE-----' in pem_cert \
+                        and b'-----END CERTIFICATE-----' in pem_cert:
                     c = Cert.from_pem(pem_cert)
                     self.certs[p.name] = c
                     logging.getLogger().warning('Loaded certificate at %s', p)
@@ -839,7 +1231,7 @@ class OpenAPISpecsLoader(EventStoppableThread):
                 try:
                     with open(p, 'r', encoding='utf8') as f:
                         openapi = OpenAPI.from_file(f, base_uri=p.absolute().as_uri())
-                except OpenAPIValidationError:
+                except Exception:
                     continue
 
                 self.specs[p.name] = openapi
@@ -857,7 +1249,12 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
         'network_name': None,
         'certs_path': None,
         'exclude': [],
-        'proxy_port': 8080
+        'proxy_port': 8080,
+        'openapi_path': None,
+        'restart_on_epoch': False,
+        'restart_on_test': False,
+        'restart_on_redo': False,
+        'restart_on_fault': False
     }
 
     options: dict[str, str | Path | list[str] | int | None]
@@ -869,6 +1266,7 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
         self.options = dict(self.DEFAULT_OPTIONS)
         self.set_options(**kwargs)
 
+        self._is_iptable_cleaned: bool = True
         self._proxy: ThreadedMitmProxy | None = None
         self._network_ip: str = ''
         self._iface_name: str = ''
@@ -878,45 +1276,41 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
         self._openapi_specs_loader: OpenAPISpecsLoader | None = None
         self._pcap_exporter: PCAPExportAddon | None = None
         self._openapi_checker: OpenAPICheckerAddon | None = None
+        self._fault_detected: bool = False
+        self._is_running: bool = False
 
     @override
     def set_options(self, **kwargs):
-        if 'compose_yaml_path' in kwargs:
-            self.options['compose_yaml_path'] = Path(kwargs['compose_yaml_path'])
-            logging.getLogger().warning('Set %s = %s', 'compose_yaml_path', self.options['compose_yaml_path'])
+        for key, val in kwargs.items():
+            if key not in self.options:
+                continue
 
-        if 'network_name' in kwargs:
-            self.options['network_name'] = kwargs['network_name']
-            logging.getLogger().warning('Set %s = %s', 'network_name', self.options['network_name'])
+            if key == 'compose_yaml_path':
+                val = Path(kwargs[key])
 
-        if 'certs_path' in kwargs:
-            self.options['certs_path'] = Path(kwargs['certs_path'])
-            logging.getLogger().warning('Set %s = %s', 'certs_path', self.options['certs_path'])
-            if self._tls_cert_loader is not None:
-                self._tls_cert_loader.join()
-            self._tls_cert_loader = TlsCertLoader(self.options['certs_path'])
-            self._tls_cert_loader.start()
+            elif key == 'certs_path':
+                val = Path(kwargs[key])
+                if self._tls_cert_loader is not None:
+                    self._tls_cert_loader.join()
+                self._tls_cert_loader = TlsCertLoader(val)
+                self._tls_cert_loader.start()
 
-        if 'exclude' in kwargs:
-            self.options['exclude'] = kwargs['exclude']
-            logging.getLogger().warning('Set %s = %s', 'exclude', self.options['exclude'])
+            elif key == 'openapi_path':
+                val = Path(kwargs[key])
+                if self._openapi_specs_loader is not None:
+                    self._openapi_specs_loader.join()
+                self._openapi_specs_loader = OpenAPISpecsLoader(val)
+                self._openapi_specs_loader.start()
 
-        if 'proxy_port' in kwargs:
-            self.options['proxy_port'] = kwargs['proxy_port']
-            logging.getLogger().warning('Set %s = %s', 'proxy_port', self.options['proxy_port'])
-
-        if 'openapi_path' in kwargs:
-            self.options['openapi_path'] = Path(kwargs['openapi_path'])
-            logging.getLogger().warning('Set %s = %s', 'openapi_path', self.options['openapi_path'])
-            if self._openapi_specs_loader is not None:
-                self._openapi_specs_loader.join()
-            self._openapi_specs_loader = OpenAPISpecsLoader(self.options['openapi_path'])
-            self._openapi_specs_loader.start()
+            self.options[key] = val
+            logging.info('Set %s = %s', key, val)
 
     @override
     def reset(self):
-        self.options = dict(self.DEFAULT_OPTIONS)
+        if not self._is_iptable_cleaned:
+            self._remove_iptable_rule(self._iface_name, self._network_ip, self.options['proxy_port'])
         self._pause_mitmproxy()
+        self.options = dict(self.DEFAULT_OPTIONS)
         self._network_ip = ''
         self._iface_name = ''
         self._network_name = ''
@@ -925,6 +1319,8 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
         self._openapi_specs_loader = None
         self._pcap_exporter = None
         self._openapi_checker = None
+        self._fault_detected = False
+        self._is_running = False
 
     def _add_iptable_rule(self, target_iface: str, target_net: str, redirect_port: int):
         """Add a redirection rule to the iptable rules.
@@ -971,6 +1367,8 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
             logging.getLogger().error(msg)
             raise AgentError(msg) from e
 
+        self._is_iptable_cleaned = False
+
     def _remove_iptable_rule(self, target_iface: str, target_net: str, redirect_port: int):
         """Remove the redirection rule to the iptable rules (see `_add_iptable_rule`).
 
@@ -995,6 +1393,7 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
                         and rule.in_interface == target_iface and rule.target.name == "REDIRECT" \
                         and rule.target.to_ports == str(redirect_port):
                     chain.delete_rule(rule)
+                    self._is_iptable_cleaned = True
                     return
         except iptc.IPTCError as e:
             msg = f"Error while modifying iptables: {e}"
@@ -1021,15 +1420,15 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
             if container_name in self.options['exclude']:
                 continue
 
-            if 'networks' in container_config:
+            if 'networks' in container_config and isinstance(container_config['networks'], dict):
                 for network_name, network_config in container_config['networks'].items():
-                    if network_name == self.options['network_name']:
+                    if network_name == self.options['network_name'] and network_config is not None:
                         for alias in network_config.get('aliases', []):
                             aliases[alias] = container_name
                         break
         return aliases
 
-    def _get_network_data_from_configs(self, configs: dict) -> tuple[str, str, str]:
+    def _get_network_data_from_configs(self, configs: dict, environ: dict[str, str]) -> tuple[str, str, str]:
         """Extract network-related data from the provided configuration dictionary.
 
         This function retrieves the network IP, interface name, and network name from the given 
@@ -1039,6 +1438,7 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
         Args:
             configs: A dictionary containing the parsed configuration data, typically from a 
                 docker-compose.yaml file.
+            environ: A dictionary containing the environment variables.
 
         Returns:
             tuple[str, str, str]: A tuple containing three strings:
@@ -1051,6 +1451,12 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
                 address is found for the network, or if no interface name is found for the network.
         """
 
+        var_pattern = re.compile(r'\${(\w+)}')
+
+        def replace_match(match):
+            var_name = match.group(1)
+            return environ.get(var_name, match.group(0))
+
         try:
             network = configs['networks'][self.options['network_name']]
         except KeyError as e:
@@ -1061,7 +1467,7 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
         try:
             for c in network['ipam']['config']:
                 if 'subnet' in c:
-                    network_ip = c['subnet']
+                    network_ip = var_pattern.sub(replace_match, c['subnet'])
                     break
             else:
                 raise KeyError()
@@ -1072,7 +1478,7 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
             raise AgentError(msg) from e
 
         try:
-            iface_name = network['driver_opts']['com.docker.network.bridge.name']
+            iface_name = var_pattern.sub(replace_match, network['driver_opts']['com.docker.network.bridge.name'])
         except KeyError as e:
             msg = "No interface name found for network named " \
                 + f"'{self.options['network_name']}' in {self.options['compose_yaml_path']}"
@@ -1080,7 +1486,7 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
             raise AgentError(msg) from e
 
         if 'name' in network:
-            network_name = network['name']
+            network_name = var_pattern.sub(replace_match, network['name'])
         else:
             network_name = self.options['compose_yaml_path'].absolute().parent.name + '_' + \
                 self.options['network_name']
@@ -1100,25 +1506,31 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
             aliases: A dictionary mapping container aliases to their actual names.
         """
 
-        self._pcap_exporter = PCAPExportAddon(containers)
-        addons = [
-            IgnoreClientConnectionAddon(),
-            PriorKnowledgeSupportAddon(),
-            TLSCustomCertAddon(containers),
-            self._pcap_exporter
-        ]
+        addons = [IgnoreClientConnectionAddon()]
 
-        if 'openapi_path' in self.options:
+        http2_overlay = Http2OverlayAddon()
+        self._pcap_exporter = PCAPExportAddon(containers)
+
+        if self.options['certs_path'] is not None:
+            addons.append(TLSCustomCertAddon(containers))
+
+        addons.append(self._pcap_exporter)
+
+        if self.options['openapi_path'] is not None:
             self._openapi_checker = OpenAPICheckerAddon(containers, aliases)
-            addons.append(self._openapi_checker)
+            http2_overlay.addons.append(self._openapi_checker)
+
+        addons.append(http2_overlay)
 
         self._proxy = ThreadedMitmProxy(
             addons,
             mode=['transparent'],
             listen_port=self.options['proxy_port'],
             ignore_hosts=[],
+            tcp_hosts=[".*"],
             show_ignored_hosts=False,
-            ssl_insecure=True
+            ssl_insecure=True,
+            dumper_filter="!~tcp"
         )
 
         self._proxy.start()
@@ -1148,23 +1560,31 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
             aliases: A dictionary mapping container aliases to their actual names.
         """
 
-        self._pcap_exporter = PCAPExportAddon(containers)
-        addons = [
-            IgnoreClientConnectionAddon(),
-            PriorKnowledgeSupportAddon(),
-            TLSCustomCertAddon(containers),
-            self._pcap_exporter
-        ]
+        addons = [IgnoreClientConnectionAddon()]
 
-        if 'openapi_path' in self.options:
+        http2_overlay = Http2OverlayAddon()
+        self._pcap_exporter = PCAPExportAddon(containers)
+
+        if self.options['certs_path'] is not None:
+            addons.append(TLSCustomCertAddon(containers))
+
+        addons.append(self._pcap_exporter)
+
+        if self.options['openapi_path'] is not None:
             self._openapi_checker = OpenAPICheckerAddon(containers, aliases)
-            addons.append(self._openapi_checker)
+            http2_overlay.addons.append(self._openapi_checker)
+
+        addons.append(http2_overlay)
 
         self._proxy.add_addons(*addons)
         self._proxy.update_options(
-            mode=['transparent'], listen_port=self.options['proxy_port'],
-            ignore_hosts=[], show_ignored_hosts=False,
-            ssl_insecure=True
+            mode=['transparent'],
+            listen_port=self.options['proxy_port'],
+            ignore_hosts=[],
+            tcp_hosts=[".*"],
+            show_ignored_hosts=False,
+            ssl_insecure=True,
+            dumper_filter="!~tcp"
         )
 
     def _stop_mitmproxy(self):
@@ -1179,8 +1599,23 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
             self._pcap_exporter = None
             self._openapi_checker = None
 
-    @override
-    def on_test_start(self, ctx: ExecutionContext):
+    def _start_procedure(self):
+        """Initialize and start the network proxy.
+
+        This method sets up the network proxy by:
+        1. Loading the docker-compose configuration.
+        2. Extracting network and container information.
+        3. Starting the mitmproxy instance with the configured addons.
+        4. Configuring iptables rules for traffic redirection.
+
+        Raises:
+            AgentError: If:
+                - Any of the required options is not set.
+                - There is an error loading the docker-compose configuration.
+                - The network specified through the options is not found in the configuration.
+                - No IP address or interface name is found for the network specified.
+        """
+
         if self.options['compose_yaml_path'] is None:
             msg = "No docker-compose.yaml path specified"
             logging.getLogger().error(msg)
@@ -1191,11 +1626,6 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
             logging.getLogger().error(msg)
             raise AgentError(msg)
 
-        if self.options['certs_path'] is None:
-            msg = "No certs path specified"
-            logging.error(msg)
-            raise AgentError(msg)
-
         try:
             with open(self.options['compose_yaml_path'], 'r', encoding='utf8') as f:
                 compose_configs = yaml.safe_load(f)
@@ -1204,29 +1634,36 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
             logging.getLogger().error(msg)
             raise AgentError(msg) from e
 
-        self._network_ip, self._iface_name, self._network_name = self._get_network_data_from_configs(compose_configs)
+        environ = {**os.environ}
+        dotenv_path = self.options['compose_yaml_path'].parent / ".env"
+        if dotenv_path.exists():
+            environ.update(dotenv_values(dotenv_path))
+
+        data = self._get_network_data_from_configs(compose_configs, environ)
+        self._network_ip, self._iface_name, self._network_name = data
         aliases = self._get_container_aliases(compose_configs)
 
         containers: dict[str, ContainerInfo] = {}
         for container_config in compose_configs['services'].values():
             container_name = container_config['container_name']
 
-            while self._tls_cert_loader.is_alive() \
+            while (self._tls_cert_loader and self._tls_cert_loader.is_alive()) \
                     or (self._openapi_specs_loader and self._openapi_specs_loader.is_alive()):
                 time.sleep(0.5)
 
-            c = None
-            for c in self._tls_cert_loader.certs:
-                if container_name in c:
-                    break
+            cert = None
+            if self.options['certs_path'] is not None:
+                for p, cert in self._tls_cert_loader.certs.items():
+                    if container_name in p:
+                        break
 
             specs = []
-            if 'openapi_path' in self.options:
+            if self.options['openapi_path'] is not None:
                 for name, s in self._openapi_specs_loader.specs.items():
                     if name.split('_')[1][1:] == container_name:
                         specs.append(s)
 
-            info = ContainerInfo(container_name, cert=self._tls_cert_loader.certs[c], specs=specs)
+            info = ContainerInfo(container_name, cert=cert, specs=specs)
             containers[container_name] = info
 
             def update_addresses(container: str, addresses: tuple[str, str]):
@@ -1250,10 +1687,28 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
         for getter in self._address_getters:
             getter.start()
 
-    @override
-    def on_test_end(self):
-        self._remove_iptable_rule(self._iface_name, self._network_ip, self.options['proxy_port'])
-        self._pause_mitmproxy()
+    def _stop_procedure(self, pause_only: bool = True):
+        """Stop or pause the network proxy.
+
+        This method stops or pauses the network proxy by removing iptables rules for traffic 
+        redirection (if needed) and stopping or pausing the mitmproxy instance
+
+        Args:
+            pause_only (optional): `True` if the mitmproxy instance should be paused instead of 
+                being fully stopped. Defaults to `True`.
+
+        Raises:
+            AgentError: If an error occurs while removing iptables rules.
+        """
+
+        if not self._is_iptable_cleaned:
+            self._remove_iptable_rule(self._iface_name, self._network_ip, self.options['proxy_port'])
+            self._is_iptable_cleaned = True
+
+        if pause_only:
+            self._pause_mitmproxy()
+        else:
+            self._stop_mitmproxy()
 
         for getter in self._address_getters:
             getter.join()
@@ -1261,8 +1716,35 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
         self._address_getters = []
 
     @override
-    def on_shutdown(self):
-        self._stop_mitmproxy()
+    def on_epoch_start(self, ctx: ExecutionContext):
+        if self.options['restart_on_epoch'] and not self._is_running:
+            self._start_procedure()
+            self._is_running = True
+
+    @override
+    def on_epoch_end(self):
+        if self.options['restart_on_epoch']:
+            self._stop_procedure()
+            self._is_running = False
+
+    @override
+    def on_test_start(self, ctx: ExecutionContext):
+        if (self.options['restart_on_test'] or self._fault_detected) and not self._is_running:
+            self._fault_detected = False
+            self._start_procedure()
+            self._is_running = True
+
+    @override
+    def on_test_end(self):
+        if self.options['restart_on_test'] or self._fault_detected:
+            self._stop_procedure()
+            self._is_running = False
+
+    @override
+    def on_redo(self):
+        if self.options['restart_on_redo']:
+            self._stop_procedure()
+            self._start_procedure()
 
     @override
     def fault_detected(self) -> bool:
@@ -1272,11 +1754,19 @@ class NetworkFunctionProxyServerAgent(GrpcServerAgent):
         return self._openapi_checker.error is not None
 
     @override
+    def on_fault(self):
+        self._fault_detected = self.options['restart_on_fault']
+
+    @override
     def get_data(self) -> list[tuple[str, bytes]]:
         if self._pcap_exporter is None:
             return []
 
         return [('dump.pcap', self._pcap_exporter.export())]
+
+    @override
+    def on_shutdown(self):
+        self._stop_procedure(pause_only=False)
 
 
 __all__ = ['NetworkFunctionProxyAgent']
@@ -1284,7 +1774,7 @@ __all__ = ['NetworkFunctionProxyAgent']
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Agent that controls the UERANSIM tools.')
+        description='Agent that controls a network proxy specifically crafted for network functions.')
     parser.add_argument('--ip', type=str, help='IP address to listen on')
     parser.add_argument('--port', type=int, help='Port to listen on')
 

@@ -1,4 +1,4 @@
-from typing import Any, override
+from typing import Any, ClassVar, override
 from random import Random
 
 from ...mutator import Mutator, Mutation, MutatorCompleted, MutatorNotApplicable, mutates
@@ -6,8 +6,10 @@ from ...proto.ngap.types import IntType
 
 
 @mutates(IntType)
-class IntRandomMutator(Mutator):
+class IntRandomMutator(Mutator[IntType, int]):
     """Mutator for `IntType` objects that generate random values in the integer boundaries."""
+
+    FIELD_NAME = 'value'
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -48,7 +50,7 @@ class IntRandomMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, data: IntType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: IntType, state: dict[str, Any] | None = None) -> Mutation[int]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -93,21 +95,25 @@ class IntRandomMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[int](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=val
         )
 
 
 @mutates(IntType)
-class IntEdgeMutator(Mutator):
+class IntEdgeMutator(Mutator[IntType, int]):
     """Mutator for `IntType` objects that generate random values that are at around the edges of the
     allowed range.
     """
 
-    _DELTA = 3
+    FIELD_NAME = 'value'
+
+    DELTA: ClassVar[int] = 3
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -136,7 +142,7 @@ class IntEdgeMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, data: IntType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: IntType, state: dict[str, Any] | None = None) -> Mutation[int]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -146,15 +152,15 @@ class IntEdgeMutator(Mutator):
             possible_values = state['possible_values']
             mutator_state = state
         elif not self._possible_values:
-            ranges = list(filter(lambda r: r[1] - r[0] > self._DELTA * 4, data.possible_ranges))
+            ranges = list(filter(lambda r: r[1] - r[0] > self.DELTA * 4, data.possible_ranges))
             if not ranges:
                 raise MutatorNotApplicable()
 
             all_values = set()
             for lb, ub in ranges:
                 all_values.update(
-                    range(lb - self._DELTA, lb + self._DELTA + 1),
-                    range(ub - self._DELTA, ub + self._DELTA + 1)
+                    range(lb - self.DELTA, lb + self.DELTA + 1),
+                    range(ub - self.DELTA, ub + self.DELTA + 1)
                 )
 
             self._possible_values = possible_values = list(all_values)
@@ -169,10 +175,12 @@ class IntEdgeMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[int](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=self._last_extracted_value
         )
 

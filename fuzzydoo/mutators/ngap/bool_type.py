@@ -5,8 +5,10 @@ from ...proto.ngap.types import BoolType
 
 
 @mutates(BoolType)
-class BoolMutator(Mutator):
+class BoolMutator(Mutator[BoolType, bool]):
     """Mutator for `BoolType` objects."""
+
+    FIELD_NAME = 'value'
 
     @override
     def next(self):
@@ -14,11 +16,12 @@ class BoolMutator(Mutator):
 
     # pylint: disable=signature-differs
     @override
-    def mutate(self, data: BoolType, _) -> Mutation:
-        return Mutation(
+    def mutate(self, data: BoolType, _) -> Mutation[bool]:
+        return Mutation[bool](
             mutator=type(self),
-            mutator_state={},
-            field_name=data.name,
+            mutator_state=None,
+            qname=data.name,
+            field_name=self.FIELD_NAME,
             mutated_value=not data.value
         )
 

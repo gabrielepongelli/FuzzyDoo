@@ -1,14 +1,19 @@
 syntax = "proto3";
 
+import "google/protobuf/any.proto";
+
 service AgentService {
   rpc setOptions(RequestMessage) returns (ResponseMessage) {}
   rpc getSupportedPaths(RequestMessage) returns (ResponseMessage) {}
+  rpc onEpochStart(RequestMessage) returns (ResponseMessage) {}
+  rpc onEpochEnd(RequestMessage) returns (ResponseMessage) {}
   rpc onTestStart(RequestMessage) returns (ResponseMessage) {}
   rpc onTestEnd(RequestMessage) returns (ResponseMessage) {}
   rpc resetAgent(RequestMessage) returns (ResponseMessage) {}
-  rpc getData(RequestMessage) returns (ResponseMessage) {}
+  rpc getData(RequestMessage) returns (stream ResponseMessage) {}
   rpc skipEpoch(RequestMessage) returns (ResponseMessage) {}
   rpc redoTest(RequestMessage) returns (ResponseMessage) {}
+  rpc onRedo(RequestMessage) returns (ResponseMessage) {}
   rpc faultDetected(RequestMessage) returns (ResponseMessage) {}
   rpc onFault(RequestMessage) returns (ResponseMessage) {}
   rpc onShutdown(RequestMessage) returns (ResponseMessage) {}
@@ -65,8 +70,10 @@ message ProtocolPath {
 message ExecutionContext {
   string protocol_name = 1;
   ProtocolPath path = 2;
-  optional string mutation_path = 3;
-  optional string mutator = 4;
+  uint32 epoch = 3;
+  optional uint32 test_case = 4;
+  optional string mutation_path = 5;
+  optional string mutator = 6;
 }
 
 message PublisherData {
@@ -100,23 +107,19 @@ message ResponseMessage {
   Status status = 1;
 
   message ProtocolPathsData {
-    message ProtocolPath { repeated string messages = 1; }
+    message ProtocolMessage { map<string, google.protobuf.Any> message = 1; }
+    message ProtocolPath { repeated ProtocolMessage messages = 1; }
     repeated ProtocolPath paths = 1;
   }
 
-  message TestData {
-
-    message TestDataRecord {
-      string name = 1;
-      bytes content = 2;
-    }
-
-    repeated TestDataRecord records = 1;
+  message TestDataRecord {
+    string name = 1;
+    bytes content = 2;
   }
 
   message Data {
     oneof data {
-      TestData test_data = 1;
+      TestDataRecord test_data = 1;
       ProtocolPathsData protocol_paths = 2;
       bytes raw_data = 3;
     }

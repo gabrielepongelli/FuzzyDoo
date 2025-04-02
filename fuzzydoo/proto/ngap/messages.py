@@ -334,7 +334,6 @@ class NGAPMessage(Message[ASN1Obj]):
                 self._ies = []
                 generic_ie = content.get_at([self._msg_type, 'value', self._body_type, 'protocolIEs', 0])
                 for idx, val in enumerate(self.content[1]['value'][1]['protocolIEs']):
-
                     name = val['value'][0]
                     ie = InformationElement(generic_ie, name, path=['ies', idx], parent=self)
                     ies._cont.set_val(ies.get_val_at([0]))

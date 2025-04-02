@@ -1,17 +1,19 @@
-from typing import Any, override
+from typing import Any, ClassVar, Sequence, override, Generic
 from random import Random
 
 from ...mutator import Mutator, Mutation, MutatorCompleted, MutatorNotApplicable, mutates
-from ...proto.nas.types import SequenceType
+from ...proto.nas.types import SequenceType, DataT
 
 
 @mutates(SequenceType)
-class SequenceLengthMutator(Mutator):
+class SequenceLengthMutator(Mutator[SequenceType[DataT], Sequence], Generic[DataT]):
     """Mutator for `SequenceType` objects that expands or reduces the length of the sequence such 
     that `[len-N, len)` and in `(len, len+N]`, where `len` is the original length of the sequence.
     """
 
-    _DELTA = 10
+    FIELD_NAME = 'value'
+
+    DELTA: ClassVar[int] = 10
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -40,7 +42,7 @@ class SequenceLengthMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, data: SequenceType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: SequenceType[DataT], state: dict[str, Any] | None = None) -> Mutation[Sequence]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -51,14 +53,14 @@ class SequenceLengthMutator(Mutator):
             possible_deltas = state['possible_deltas']
             mutator_state = state
         elif not self._possible_deltas:
-            if len(data.value) < self._DELTA:
+            if len(data.value) < self.DELTA:
                 raise MutatorNotApplicable()
             possible_deltas = []
             old_len = len(data.value)
-            for new_len in range(old_len + 1, old_len + self._DELTA + 1):
+            for new_len in range(old_len + 1, old_len + self.DELTA + 1):
                 delta = new_len - old_len
                 possible_deltas.append(delta)
-            for new_len in range(old_len - 1, old_len - self._DELTA - 1, -1):
+            for new_len in range(old_len - 1, old_len - self.DELTA - 1, -1):
                 if new_len < 0:
                     break
                 delta = new_len - old_len
@@ -82,10 +84,12 @@ class SequenceLengthMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[Sequence](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=new_value
         )
 

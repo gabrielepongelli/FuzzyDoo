@@ -1,5 +1,6 @@
-from typing import Any, override
+from typing import Any, ClassVar, override
 from random import Random
+from math import ceil
 
 from pycrate_asn1rt.setobj import ASN1Range
 
@@ -9,8 +10,10 @@ from ...proto.ngap.types import *
 
 
 @mutates(BitStrType)
-class BitStrMutator(Mutator):
+class BitStrMutator(Mutator[BitStrType, tuple[int, int]]):
     """Mutator for `BitStrType` objects that generate random values."""
+
+    FIELD_NAME = 'value'
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -26,7 +29,7 @@ class BitStrMutator(Mutator):
         self._possible_values: list[int] | None = None
 
     def _export_state(self) -> dict:
-        """Export the current state of the `BitStrMutator`.
+        """Export the current state.
 
         Returns:
             dict: A dictionary containing the following keys:
@@ -55,7 +58,7 @@ class BitStrMutator(Mutator):
 
         return state
 
-    def _mutate(self, data: BitStrType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: BitStrType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation[tuple[int, int]] | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -123,25 +126,31 @@ class BitStrMutator(Mutator):
                 if len(self._extracted_values) == self._range[1] - self._range[0]:
                     raise MutatorCompleted()
         else:
-            return Mutation(mutator=type(self),
-                            mutator_state=self._export_state(),
-                            field_name=data.name,
-                            mutated_value=(value, bit_len))
+            return Mutation[tuple[int, int]](
+                mutator=type(self),
+                mutator_state=self._export_state(),
+                qname=data.qualified_name,
+                field_name=self.FIELD_NAME,
+                original_value=data.value,
+                mutated_value=(value, bit_len)
+            )
 
     @override
     def next(self):
         self._mutate(None, True)
 
     @override
-    def mutate(self, data: BitStrType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: BitStrType, state: dict[str, Any] | None = None) -> Mutation[tuple[int, int]]:
         return self._mutate(data, False, state)
 
 
 @mutates(OctStrType)
-class OctStrRandomMutator(Mutator):
+class OctStrRandomMutator(Mutator[OctStrType, bytes]):
     """Mutator for `OctStrType` objects that generate random values that are not in the list of 
     possible ones.
     """
+
+    FIELD_NAME = 'value'
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -194,7 +203,7 @@ class OctStrRandomMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation[bytes]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -232,22 +241,27 @@ class OctStrRandomMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[bytes](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=val
         )
 
 
 @mutates(OctStrType)
-class OctStrPartialContentMutator(Mutator):
+class OctStrPartialContentMutator(Mutator[OctStrType, bytes]):
     """Mutator for `OctStrType` objects that generates values with some different bytes w.r.t. 
     the original ones.
     """
 
-    _MAX_RANGE_DELTA = 50
-    _SPECIAL_VALUES = [b"\x00", b"\x01", b"\xfe", b"\xff"]
+    FIELD_NAME = 'value'
+
+    MAX_RANGE_DELTA: ClassVar[int] = 50
+
+    SPECIAL_VALUES: ClassVar[list[str]] = [b"\x00", b"\x01", b"\xfe", b"\xff"]
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -283,7 +297,7 @@ class OctStrPartialContentMutator(Mutator):
         val1 = rand.randint(0, size)
         val2 = rand.randint(0, size)
         start, end = (min(val1, val2), max(val1, val2))
-        return (start, min(end, start + self._MAX_RANGE_DELTA))
+        return (start, min(end, start + self.MAX_RANGE_DELTA))
 
     def _range_to_random(self, data: bytes, rand: Random) -> bytes:
         """Change a random sequence of bytes in the buffer.
@@ -312,7 +326,7 @@ class OctStrPartialContentMutator(Mutator):
 
         start, end = self._random_range(len(data), rand)
         for i in range(start, end):
-            data = data[:i] + rand.choice(self._SPECIAL_VALUES) + data[i + 1:]
+            data = data[:i] + rand.choice(self.SPECIAL_VALUES) + data[i + 1:]
         return data
 
     def _range_to_null(self, data: bytes, rand: Random) -> bytes:
@@ -351,7 +365,7 @@ class OctStrPartialContentMutator(Mutator):
         self._extracted_values.add(self._last_extracted_value)
 
     @override
-    def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: OctStrType, state: dict[str, Any] | None = None) -> Mutation[bytes]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -381,17 +395,21 @@ class OctStrPartialContentMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[bytes](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=self._last_extracted_value
         )
 
 
 @mutates(BaseStringType)
-class StringRandomMutator(Mutator):
+class StringRandomMutator(Mutator[BaseStringType, str]):
     """Mutator for `BaseStringType` objects that generate random strings in their codec."""
+
+    FIELD_NAME = 'value'
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -442,7 +460,7 @@ class StringRandomMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, data: BaseStringType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: BaseStringType, state: dict[str, Any] | None = None) -> Mutation[str]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -469,21 +487,25 @@ class StringRandomMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[str](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=self._last_extracted_value
         )
 
 
 @mutates(BaseStringType)
-class StringBadEncodeMutator(Mutator):
+class StringBadEncodeMutator(Mutator[BaseStringType, str]):
     """Mutator for `StringType` objects that generate strings with some invalid bytes for the codec 
     in use.
     """
 
-    _MAX_CHARS = 5
+    FIELD_NAME = "value"
+
+    MAX_CHARS: ClassVar[int] = 5
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -520,7 +542,7 @@ class StringBadEncodeMutator(Mutator):
         """
 
         allowed_ranges = CHAR_RANGES[codec]
-        full_range = [(0, 2**(len(allowed_ranges[-1][-1].to_bytes()) * 8))]
+        full_range = [(0, 2**(ceil(allowed_ranges[-1][-1].bit_length() / 8) * 8))]
 
         bad_codes = set(range(*full_range))
         for start, end in allowed_ranges:
@@ -540,7 +562,7 @@ class StringBadEncodeMutator(Mutator):
             str: The modified string.
         """
 
-        n_changes = rand.randint(1, self._MAX_CHARS)
+        n_changes = rand.randint(1, self.MAX_CHARS)
         n_changes = min(n_changes, len(data))
 
         changed_chars_pos = []
@@ -553,7 +575,8 @@ class StringBadEncodeMutator(Mutator):
         new_data = b""
         for idx, c in enumerate(data):
             if idx in changed_chars_pos:
-                new_data += rand.choice(self._bad_code_points).to_bytes()
+                choice = rand.choice(self._bad_code_points)
+                new_data += choice.to_bytes(ceil(choice.bit_length() / 8))
             else:
                 new_data += c.encode(encoding=self._codec)
 
@@ -564,7 +587,7 @@ class StringBadEncodeMutator(Mutator):
         self._extracted_values.add(self._last_extracted_value)
 
     @override
-    def mutate(self, data: BaseStringType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: BaseStringType, state: dict[str, Any] | None = None) -> Mutation[str]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -595,10 +618,12 @@ class StringBadEncodeMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[str](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=self._last_extracted_value
         )
 

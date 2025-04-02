@@ -1,4 +1,4 @@
-from typing import Any, override
+from typing import Any, override, ClassVar
 from random import Random
 
 from ..mutator import Mutator, Mutation, MutatorCompleted, mutates
@@ -12,10 +12,10 @@ MAX_DELAY = 120  # seconds
 
 
 @mutates(Message)
-class DelayedMessageMutator(Mutator):
+class DelayedMessageMutator(Mutator[Message, int]):
     """Mutator for `Message` objects that delays their sending."""
 
-    _FIELD_NAME = "delay"
+    FIELD_NAME: ClassVar[str] = "delay"
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -44,7 +44,7 @@ class DelayedMessageMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, _, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: Message, state: dict[str, Any] | None = None) -> Mutation[int]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -62,19 +62,20 @@ class DelayedMessageMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[int](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=self._FIELD_NAME,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
             mutated_value=self._last_extracted_value
         )
 
 
 @mutates(Message)
-class ReplayedMessageMutator(Mutator):
+class ReplayedMessageMutator(Mutator[Message, int]):
     """Mutator for `Message` objects that sends multiple replicas of the message."""
 
-    _FIELD_NAME = "n_replay"
+    FIELD_NAME: ClassVar[str] = "n_replay"
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -103,7 +104,7 @@ class ReplayedMessageMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, _, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: Message, state: dict[str, Any] | None = None) -> Mutation[int]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -121,10 +122,11 @@ class ReplayedMessageMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[int](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=self._FIELD_NAME,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
             mutated_value=self._last_extracted_value
         )
 

@@ -11,7 +11,7 @@ from CryptoMobile.conv import conv_501_A2, conv_501_A6, conv_501_A7, conv_501_A8
 
 from ..transformer import Encoder, Decoder, Transformer
 from ..protocol import Message, MessageParsingError
-from ..proto.nas.messages import NASMessage
+from ..proto.nas.messages import NASMessage, err_msgs
 from ..utils.register import register
 
 from ..utils.errs import *
@@ -32,6 +32,8 @@ class NASSecurity(Encoder, Decoder):
     The class provides methods to extract security parameters from NAS messages,
     perform encryption and decryption, and compute message authentication codes (MAC).
     """
+
+    NAME = f"{__module__}.{__qualname__}"
 
     def __init__(self, op: str, op_type: str, key: str, mcc: int, mnc: int, supi: str):
         """Initialize a new `NASSecurity` instance.
@@ -218,7 +220,9 @@ class NASSecurity(Encoder, Decoder):
 
         nas_msg, err = parse_NAS5G(msg.content['NASMessage'], inner=False)
         if err:
-            raise DecodingError(f"An unknow error occurred while decoding the message: {err}")
+            if err in err_msgs:
+                raise DecodingError(err_msgs[err].capitalize()) from None
+            raise DecodingError(f"Unknow error code: {err}")
 
         msg_name = nas_msg.__class__.__name__ + 'Message'
         try:
@@ -313,9 +317,11 @@ class NASSecurity(Encoder, Decoder):
 
     @override
     def export_data(self) -> list[tuple[str, bytes]]:
+        k_enc = base64.b64encode(self.k_nas_enc) if self.k_nas_enc else self.k_nas_enc
+        k_int = base64.b64encode(self.k_nas_int) if self.k_nas_int else self.k_nas_int
         res = ""
         res += f"CIPHERING_ALGORITHM={self.ciphering_algorithm}\n"
         res += f"INTEGRITY_ALGORITHM={self.integrity_algorithm}\n"
-        res += f"K_NAS_ENC={base64.b64encode(self.k_nas_enc)}\n"
-        res += f"K_NAS_INT={base64.b64encode(self.k_nas_int)}\n"
+        res += f"K_NAS_ENC={k_enc}\n"
+        res += f"K_NAS_INT={k_int}\n"
         return [("enc_and_int_params.txt", res.encode())]

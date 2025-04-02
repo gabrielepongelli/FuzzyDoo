@@ -1263,10 +1263,9 @@ files = [
 name = "more-itertools"
 version = "10.6.0"
 description = "More routines for operating on iterables, beyond itertools"
-optional = true
+optional = false
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "extra == \"network-function-proxy\""
 files = [
     {file = "more-itertools-10.6.0.tar.gz", hash = "sha256:2cd7fad1009c31cc9fb6a035108509e6547547a7a738374f10bd49a09eb3ee3b"},
     {file = "more_itertools-10.6.0-py3-none-any.whl", hash = "sha256:6eb054cb4b6db1473f6e15fcc676a08e4732548acd47c708f0e179c2c7c01e89"},
@@ -1697,6 +1696,22 @@ files = [
     {file = "pysctp-0.7.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e0c3c2151314e465e35049529c16e6a541de39577f173d30064c714fd398b2dd"},
     {file = "pysctp-0.7.2.tar.gz", hash = "sha256:dc39ce71988a264f54d9de114a9c7cc373300ade22d373a90c9f09c38c6a7f40"},
 ]
+
+[[package]]
+name = "python-dotenv"
+version = "1.0.1"
+description = "Read key-value pairs from a .env file and set them as environment variables"
+optional = true
+python-versions = ">=3.8"
+groups = ["main"]
+markers = "extra == \"network-function-proxy\""
+files = [
+    {file = "python-dotenv-1.0.1.tar.gz", hash = "sha256:e324ee90a023d808f1959c46bcbc04446a10ced277783dc6ee09987c37ec10ca"},
+    {file = "python_dotenv-1.0.1-py3-none-any.whl", hash = "sha256:f7b63ef50f1b690dddf550d03497b66d609393b40b564ed0d674909a68ebf16a"},
+]
+
+[package.extras]
+cli = ["click (>=5.0)"]
 
 [[package]]
 name = "python-iptables"
@@ -2297,11 +2312,11 @@ cffi = ["cffi (>=1.11)"]
 
 [extras]
 docs = ["pdoc"]
-network-function-proxy = ["mitmproxy", "openapi-core", "python-iptables", "scapy", "setuptools"]
+network-function-proxy = ["mitmproxy", "openapi-core", "python-dotenv", "python-iptables", "scapy", "setuptools"]
 network-proxy = ["pysctp"]
 network-sniffer = ["scapy"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4"
-content-hash = "97b639f37a4746d4b425fce3fe0e87a30840e6efdf2b346c5359135f0f6eecaf"
+content-hash = "7fa8a4ccb6c595dac400abba20908b2fe8b84463b2a88ca16d434587c16b7c6f"

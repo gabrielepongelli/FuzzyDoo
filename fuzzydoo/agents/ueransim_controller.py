@@ -14,79 +14,131 @@ from queue import Queue, ShutDown, Full
 from typing import override, IO, ClassVar
 
 import yaml
+from more_itertools import first_true
 
 from ..agent import Agent, ExecutionContext
 from ..utils.threads import EventStoppableThread, ExceptionRaiserThread, with_thread_safe_get_set
 from ..utils.register import register
-from ..utils.other import first_true, run_as_root
+from ..utils.other import run_as_root
 from ..protocol import ProtocolPath
 from .grpc_agent import GrpcClientAgent, GrpcServerAgent
 
 from ..utils.errs import *
 
 
-NGAP_GNB_START = ['NGSetupRequestMessage', 'NGSetupResponseMessage']
+NGAP_GNB_START = [
+    {'name': 'NGSetupRequestMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    {'name': 'NGSetupResponseMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False}
+]
 
 NGAP_GNB_START_UE_START = NGAP_GNB_START + [
-    'InitialUEMessageMessage', 'DownlinkNASTransportMessage', 'UplinkNASTransportMessage',
-    'DownlinkNASTransportMessage', 'UplinkNASTransportMessage',
-    'InitialContextSetupRequestMessage', 'InitialContextSetupResponseMessage',
-    'UplinkNASTransportMessage', 'UplinkNASTransportMessage', 'DownlinkNASTransportMessage',
-    'PDUSessionResourceSetupRequestMessage', 'PDUSessionResourceSetupResponseMessage']
+    {'name': 'InitialUEMessageMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    {'name': 'DownlinkNASTransportMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+    {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    {'name': 'DownlinkNASTransportMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+    {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    {'name': 'InitialContextSetupRequestMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+    {'name': 'InitialContextSetupResponseMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    {'name': 'DownlinkNASTransportMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': True},
+    {'name': 'PDUSessionResourceSetupRequestMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+    {'name': 'PDUSessionResourceSetupResponseMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+]
 
 NGAP_SUPPORTED_PATHS = [
     # ue release
-    NGAP_GNB_START_UE_START + ['UEContextReleaseRequestMessage', 'UEContextReleaseCommandMessage',
-                               'UEContextReleaseCompleteMessage'],
+    NGAP_GNB_START_UE_START + [
+        {'name': 'UEContextReleaseRequestMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+        {'name': 'UEContextReleaseCommandMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+        {'name': 'UEContextReleaseCompleteMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    ],
 
     # ue deregister normal
-    NGAP_GNB_START_UE_START + ['UplinkNASTransportMessage', 'DownlinkNASTransportMessage',
-                               'UplinkNASTransportMessage', 'UEContextReleaseCommandMessage',
-                               'UEContextReleaseCompleteMessage'],
+    NGAP_GNB_START_UE_START + [
+        {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+        {'name': 'DownlinkNASTransportMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+        {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+        {'name': 'UEContextReleaseCommandMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+        {'name': 'UEContextReleaseCompleteMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    ],
 
     # ue deregister disable 5g
-    NGAP_GNB_START_UE_START + ['UplinkNASTransportMessage', 'DownlinkNASTransportMessage',
-                               'UEContextReleaseCommandMessage', 'UEContextReleaseCompleteMessage'],
+    NGAP_GNB_START_UE_START + [
+        {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+        {'name': 'DownlinkNASTransportMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+        {'name': 'UEContextReleaseCommandMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+        {'name': 'UEContextReleaseCompleteMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    ],
 
     # ue deregister remove sim/switch off
-    NGAP_GNB_START_UE_START + ['UplinkNASTransportMessage', 'UEContextReleaseCommandMessage',
-                               'UEContextReleaseCompleteMessage'],
+    NGAP_GNB_START_UE_START + [
+        {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': True},
+        {'name': 'DownlinkNASTransportMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': True},
+        {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+        {'name': 'UEContextReleaseCommandMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+        {'name': 'UEContextReleaseCompleteMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    ],
 
     # ue pdu session release
-    NGAP_GNB_START_UE_START + ['UplinkNASTransportMessage',
-                               'PDUSessionResourceReleaseCommandMessage',
-                               'PDUSessionResourceReleaseResponseMessage',
-                               'UplinkNASTransportMessage']
+    NGAP_GNB_START_UE_START + [
+        {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+        {'name': 'PDUSessionResourceReleaseCommandMessage', 'src': 'AMF', 'dst': 'NG-RAN node', 'optional': False},
+        {'name': 'PDUSessionResourceReleaseResponseMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+        {'name': 'UplinkNASTransportMessage', 'src': 'NG-RAN node', 'dst': 'AMF', 'optional': False},
+    ]
 ]
 
-NAS_MM_UE_START = ['FGMMRegistrationRequestMessage', 'FGMMAuthenticationRequestMessage',
-                   'FGMMAuthenticationResponseMessage', 'FGMMSecurityModeCommandMessage',
-                   'FGMMSecurityModeCompleteMessage', 'FGMMRegistrationAcceptMessage',
-                   'FGMMRegistrationCompleteMessage', 'FGMMULNASTransportMessage',
-                   'FGMMConfigurationUpdateCommandMessage', 'FGMMDLNASTransportMessage']
+NAS_MM_UE_START = [
+    {'name': 'FGMMRegistrationRequestMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False},
+    {'name': 'FGMMAuthenticationRequestMessage', 'src': 'AMF', 'dst': 'UE', 'optional': False},
+    {'name': 'FGMMAuthenticationResponseMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False},
+    {'name': 'FGMMSecurityModeCommandMessage', 'src': 'AMF', 'dst': 'UE', 'optional': False},
+    {'name': 'FGMMSecurityModeCompleteMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False},
+    {'name': 'FGMMRegistrationAcceptMessage', 'src': 'AMF', 'dst': 'UE', 'optional': False},
+    {'name': 'FGMMRegistrationCompleteMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False},
+    {'name': 'FGMMULNASTransportMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False},
+    {'name': 'FGMMConfigurationUpdateCommandMessage', 'src': 'AMF', 'dst': 'UE', 'optional': True},
+    {'name': 'FGMMDLNASTransportMessage', 'src': 'AMF', 'dst': 'UE', 'optional': False},
+]
 
 NAS_MM_SUPPORTED_PATHS = [
     # ue deregister normal
-    NAS_MM_UE_START + ['FGMMMODeregistrationRequestMessage',
-                       'FGMMMODeregistrationAcceptMessage', 'FGMMRegistrationRequestMessage'],
+    NAS_MM_UE_START + [
+        {'name': 'FGMMMODeregistrationRequestMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False},
+        {'name': 'FGMMMODeregistrationAcceptMessage', 'src': 'AMF', 'dst': 'UE', 'optional': False},
+        {'name': 'FGMMRegistrationRequestMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False},
+    ],
 
     # ue deregister disable 5g
-    NAS_MM_UE_START + ['FGMMMODeregistrationRequestMessage', 'FGMMMODeregistrationAcceptMessage'],
+    NAS_MM_UE_START + [
+        {'name': 'FGMMMODeregistrationRequestMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False},
+        {'name': 'FGMMMODeregistrationAcceptMessage', 'src': 'AMF', 'dst': 'UE', 'optional': False},
+    ],
 
     # ue deregister remove sim/switch off
-    NAS_MM_UE_START + ['FGMMMODeregistrationRequestMessage'],
+    NAS_MM_UE_START + [{'name': 'FGMMMODeregistrationRequestMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False}],
 
     # ue pdu session release
-    NAS_MM_UE_START + ['FGMMULNASTransportMessage', 'FGMMDLNASTransportMessage',
-                       'FGMMULNASTransportMessage'],
+    NAS_MM_UE_START + [
+        {'name': 'FGMMULNASTransportMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False},
+        {'name': 'FGMMDLNASTransportMessage', 'src': 'AMF', 'dst': 'UE', 'optional': False},
+        {'name': 'FGMMULNASTransportMessage', 'src': 'UE', 'dst': 'AMF', 'optional': False},
+    ],
 ]
 
-NAS_SM_UE_START = ['FGSMPDUSessionEstabRequestMessage', 'FGSMPDUSessionEstabAcceptMessage']
+NAS_SM_UE_START = [
+    {'name': 'FGSMPDUSessionEstabRequestMessage', 'src': 'UE', 'dst': 'SMF', 'optional': False},
+    {'name': 'FGSMPDUSessionEstabAcceptMessage', 'src': 'SMF', 'dst': 'UE', 'optional': False},
+]
 
 NAS_SM_SUPPORTED_PATHS = [
     # ue pdu session release
-    NAS_SM_UE_START + ['FGSMPDUSessionReleaseRequestMessage',
-                       'FGSMPDUSessionReleaseCommandMessage', 'FGSMPDUSessionReleaseCompleteMessage'],
+    NAS_SM_UE_START + [
+        {'name': 'FGSMPDUSessionReleaseRequestMessage', 'src': 'UE', 'dst': 'SMF', 'optional': False},
+        {'name': 'FGSMPDUSessionReleaseCommandMessage', 'src': 'SMF', 'dst': 'UE', 'optional': False},
+        {'name': 'FGSMPDUSessionReleaseCompleteMessage', 'src': 'UE', 'dst': 'SMF', 'optional': False},
+    ],
 ]
 
 
@@ -314,7 +366,7 @@ class ProcessHandlerThread(EventStoppableThread, ExceptionRaiserThread):
     """Output watcher to attach to the handled process. Must be set by the user of this class 
     before calling `start`."""
 
-    def __init__(self, descriptor: UERANSIMToolDescriptor, is_success: Callable[[str], bool]):
+    def __init__(self, descriptor: UERANSIMToolDescriptor, is_success: Callable[[str], bool], terminate_on_error: bool = True):
         super().__init__()
 
         self.descriptor = descriptor
@@ -322,6 +374,9 @@ class ProcessHandlerThread(EventStoppableThread, ExceptionRaiserThread):
         self.output_listener = None
         self.error_detector = None
         self.success_detector = None
+
+        self._terminate_on_error: Event = Event()
+        self.terminate_on_error = terminate_on_error
 
     @property
     def success_event(self) -> Event | None:
@@ -402,6 +457,19 @@ class ProcessHandlerThread(EventStoppableThread, ExceptionRaiserThread):
         self.success_detector.join()
         self.error_detector.join()
 
+    @property
+    def terminate_on_error(self) -> bool:
+        """Whether to terminate the process if an error is detected."""
+
+        return self._terminate_on_error.is_set()
+
+    @terminate_on_error.setter
+    def terminate_on_error(self, value: bool):
+        if value:
+            self._terminate_on_error.set()
+        else:
+            self._terminate_on_error.clear()
+
     @override
     def handled_run(self):
         try:
@@ -433,7 +501,7 @@ class ProcessHandlerThread(EventStoppableThread, ExceptionRaiserThread):
         self.output_listener.start()
 
         while not self.stop_event.is_set():
-            if self.error_detector.watch_event.is_set():
+            if self.error_detector.watch_event.is_set() and self.terminate_on_error:
                 self._cleanup(output_logger)
                 self.is_error_recoverable = True
                 raise AgentError(self.error_detector.err_msg)
@@ -479,19 +547,24 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
                  protocol: str,
                  protocol_path_idx: int,
                  also_start_ue: bool = False,
+                 terminate_on_error: bool = True,
                  also_exec_cli: bool = False):
         super().__init__()
 
         self.gnb_handler = ProcessHandlerThread(
             gnb_descriptor,
-            lambda line: "NG Setup procedure is successful" in line)
+            lambda line: "NG Setup procedure is successful" in line,
+            terminate_on_error=terminate_on_error)
         self.ue_handler = ProcessHandlerThread(
             ue_descriptor,
-            lambda line: "PDU Session establishment is successful" in line)
+            lambda line: "PDU Session establishment is successful" in line,
+            terminate_on_error=terminate_on_error)
         self.cli_path = cli_path
 
         self.also_start_ue = also_start_ue
         self.also_exec_cli = also_exec_cli
+        self._terminate_on_error: Event = Event()
+        self.terminate_on_error = terminate_on_error
 
         self.protocol = protocol
         self.protocol_path_idx = protocol_path_idx
@@ -588,14 +661,27 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
 
         return self.ue_handler.output
 
+    @property
+    def terminate_on_error(self) -> bool:
+        """Whether to terminate the orchestrator thread if an error occurs or not."""
+
+        return self._terminate_on_error.is_set()
+
+    @terminate_on_error.setter
+    def terminate_on_error(self, value: bool):
+        if value:
+            self._terminate_on_error.set()
+        else:
+            self._terminate_on_error.clear()
+
     def _cleanup(self):
         """Perform some cleanup operations before joining the thread."""
 
-        if self.ue_handler.is_alive():
+        if self.ue_handler.ident is not None:
             self.ue_handler.join()
             logging.info('Stopped',
                          extra={'tool': self.ue_handler.descriptor.name})
-        if self.gnb_handler.is_alive():
+        if self.gnb_handler.ident is not None:
             self.gnb_handler.join()
             logging.info('Stopped',
                          extra={'tool': self.gnb_handler.descriptor.name})
@@ -608,7 +694,7 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
 
         is_cli_executed = False
         while not self.stop_event.is_set():
-            if self.ue_handler.is_error_occurred:
+            if self.ue_handler.is_error_occurred and self.terminate_on_error:
                 e = self.ue_handler.exception
                 self.is_error_recoverable = self.ue_handler.is_error_recoverable
                 if self.is_error_recoverable:
@@ -617,7 +703,7 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
                     logging.error('%s', str(e), extra={'tool': self.ue_handler.descriptor.name})
                 raise e
 
-            if self.gnb_handler.is_error_occurred:
+            if self.gnb_handler.is_error_occurred and self.terminate_on_error:
                 e = self.gnb_handler.exception
                 self.is_error_recoverable = self.gnb_handler.is_error_recoverable
                 if self.is_error_recoverable:
@@ -648,6 +734,9 @@ class OrchestratorThread(EventStoppableThread, ExceptionRaiserThread):
 
             time.sleep(0.1)
 
+    @override
+    def join(self, timeout=None):
+        super().join(timeout)
         self._cleanup()
 
 
@@ -675,6 +764,10 @@ class UERANSIMControllerAgent(GrpcClientAgent):
                     - `'config_path'` (optional): A string representing the remote path where the
                         configuration file to be used for the gnb is located. Defaults to
                         `'./gnb.yaml'`.
+                    - `'direct_config_path'` (optional): A string representing the remote path 
+                        where the configuration file to be used for the gnb is located. This 
+                        configuration file must be written such that the gnb doesn't connect to a 
+                        proxy, but connects directly to the amf. Defaults to `'./gnb.yaml'`.
                 - `'ue'` (optional): A dictionary with the following key-value pairs:
                     - `'exe_path'` (optional): A string representing the remote path where the
                         executable program to be used for the ue is located. Defaults to
@@ -693,8 +786,12 @@ class UERANSIMControllerAgent(GrpcClientAgent):
         super().set_options(**kwargs)
 
     @override
-    def fault_detected(self) -> bool:
-        return False
+    def on_epoch_start(self, ctx: ExecutionContext):
+        return
+
+    @override
+    def on_epoch_end(self):
+        return
 
     @override
     def on_fault(self):
@@ -732,6 +829,7 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
     DEFAULT_OPTIONS: dict[str, Path] = {
         'gnb_exe_path': Path('./nr-gnb'),
         'gnb_config_path': Path('./gnb.yaml'),
+        'gnb_direct_config_path': Path('./gnb.yaml'),
         'ue_exe_path': Path('./nr-ue'),
         'ue_config_path': Path('./ue.yaml'),
         'cli_exe_path': Path('./nr-cli'),
@@ -760,12 +858,14 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
         self.orchestrator = None
 
         self._is_delay_mutation: bool = False
+        self._last_exception: Exception | None = None
+        self._is_recoverable: bool = True
 
-    def _is_subpath(self, path: list[str], subpath: ProtocolPath | list[str]) -> bool:
+    def _is_subpath(self, path: list[dict[str, str | bool]], subpath: ProtocolPath | list[str]) -> bool:
         """Check if `subpath` is a subpath of `path`.
 
         Args:
-            path: List of message names representing a path.
+            path: List of message records representing a path.
             subpath: List of names or `ProtocolPath` instance representing the path to be checked.
 
         Returns:
@@ -779,7 +879,7 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
             return False
 
         for m1, m2 in zip(path, subpath):
-            if m1 != m2:
+            if m1['name'] != m2:
                 return False
 
         return True
@@ -822,6 +922,10 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
                 self.options['gnb_config_path'] = Path(gnb_configs['config_path'])
                 logging.info('Set gnb[%s] = %s',
                              'configuration_path', self.options['gnb_config_path'])
+            if 'direct_config_path' in gnb_configs:
+                self.options['gnb_direct_config_path'] = Path(gnb_configs['direct_config_path'])
+                logging.info('Set gnb[%s] = %s',
+                             'direct_configuration_path', self.options['gnb_direct_config_path'])
 
         if 'ue' in kwargs:
             ue_configs = kwargs['ue']
@@ -842,9 +946,11 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
         self.gnb = None
         self.ue = None
         self.orchestrator = None
+        self._last_exception = None
+        self._is_recoverable = True
 
     @override
-    def get_supported_paths(self, protocol: str) -> list[list[str]]:
+    def get_supported_paths(self, protocol: str) -> list[list[dict[str, str | bool]]]:
         match protocol:
             case 'NGAP':
                 return NGAP_SUPPORTED_PATHS
@@ -857,6 +963,9 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
 
     @override
     def on_test_start(self, ctx: ExecutionContext):
+        self._last_exception = None
+        self._is_recoverable = True
+
         if ctx.protocol_name not in self._SUPPORTED_PROTOCOLS:
             return
 
@@ -896,10 +1005,12 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
             return
 
         self.orchestrator.join()
-        if self.orchestrator.is_error_occurred \
+        self.orchestrator = None
+
+        if self._last_exception is not None \
                 and (not self._is_delay_mutation
-                     or "no response from the network" not in str(self.orchestrator.exception)):
-            raise self.orchestrator.exception
+                     or "no response from the network" not in str(self._last_exception)):
+            raise self._last_exception
 
     @override
     def get_data(self) -> list[tuple[str, bytes]]:
@@ -925,21 +1036,83 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
     def redo_test(self) -> bool:
         # in case we are delaying messages, ignore errors related to missing responses
         if self._is_delay_mutation \
-                and self.orchestrator.is_error_occurred \
-                and "no response from the network" in str(self.orchestrator.exception):
+                and self._last_exception is not None \
+                and "no response from the network" in str(self._last_exception):
             return False
 
-        return self.orchestrator.is_error_occurred and self.orchestrator.is_error_recoverable
+        # ignore error indications received
+        if self._last_exception is not None \
+                and "protocol/semantic-error" in str(self._last_exception):
+            return False
+
+        return self._last_exception is not None and self._is_recoverable
+
+    @override
+    def on_redo(self):
+        # for this problem (https://github.com/aligungr/UERANSIM/issues/320) sometimes a genuine
+        # attempt is needed so that UERANSIM can make the core network use the right method to
+        # calculate the SQN
+
+        if self.orchestrator is not None:
+            self.orchestrator.join()
+
+        gnb = UERANSIMToolDescriptor(
+            'gNB', self.options['gnb_exe_path'], self.options['gnb_direct_config_path'])
+
+        ue = UERANSIMToolDescriptor(
+            'UE', self.options['ue_exe_path'], self.options['ue_config_path'])
+
+        orchestrator = OrchestratorThread(
+            gnb,
+            ue,
+            self.options['cli_exe_path'],
+            self.orchestrator.protocol,
+            self.orchestrator.protocol_path_idx,
+            also_start_ue=True,
+            terminate_on_error=False
+        )
+
+        orchestrator.start()
+        start = time.time()
+        while True:
+            if orchestrator.ue_handler.is_alive() \
+                    and orchestrator.ue_handler.success_event is not None \
+                    and orchestrator.ue_handler.success_event.is_set():
+                break
+
+            if time.time() - start >= 60:
+                break
+
+            time.sleep(0.1)
+
+        orchestrator.join()
+
+    @override
+    def fault_detected(self) -> bool:
+        # since this is called before redo_test, but after the message exchange is terminated, we
+        # can signal the orchestrator to ignore future errors
+
+        self._last_exception = self.orchestrator.exception
+        self._is_recoverable = self.orchestrator.is_error_recoverable
+
+        self.orchestrator.terminate_on_error = False
+
+        return False
 
     @override
     def stop_execution(self) -> bool:
         # in case we are delaying messages, ignore errors related to missing responses
         if self._is_delay_mutation \
-                and self.orchestrator.is_error_occurred \
-                and "no response from the network" in str(self.orchestrator.exception):
+                and self._last_exception is not None \
+                and "no response from the network" in str(self._last_exception):
             return False
 
-        return self.orchestrator.is_error_occurred and not self.orchestrator.is_error_recoverable
+        # ignore error indications received
+        if self._last_exception is not None \
+                and "protocol/semantic-error" in str(self._last_exception):
+            return False
+
+        return self._last_exception is not None and not self._is_recoverable
 
 
 __all__ = ['UERANSIMControllerAgent']
@@ -960,8 +1133,7 @@ def main():
         sys.stderr.write("Error: No IP address and port specified\n")
         sys.exit(1)
 
-    logging.basicConfig(level=logging.DEBUG,
-                        format="[%(tool)s][%(levelname)s] - %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="[%(tool)s][%(levelname)s] - %(message)s")
 
     class DefaultToolFilter(logging.Filter):
         @override

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 from .protocol import Message
 from .utils.register import ClassRegister
@@ -15,6 +16,13 @@ class Transformer(ABC):
 
     Subclasses must implement the `transform` method to define the specific transformation logic.
     """
+
+    NAME: ClassVar[str] = f"{__module__}.{__qualname__}"
+    """The name of this transformer class."""
+
+    def __init_subclass__(cls):
+        super().__init_subclass__()
+        cls.NAME = f"{cls.__module__}.{cls.__name__}"
 
     @classmethod
     def from_name(cls, name: str, *args, **kwargs) -> "Transformer":

@@ -18,8 +18,14 @@ class ExecutionContextSerializer:
             agent_pb2.ExecutionContext: The serialized `ExecutionContext` protobuf message.
         """
 
-        res = agent_pb2.ExecutionContext(path=ProtocolPathSerializer.serialize(ctx.path))
-        res.protocol_name = ctx.protocol_name
+        res = agent_pb2.ExecutionContext(
+            path=ProtocolPathSerializer.serialize(ctx.path),
+            epoch=ctx.epoch,
+            protocol_name=ctx.protocol_name
+        )
+
+        if ctx.test_case is not None:
+            res.test_case = ctx.test_case
 
         if ctx.mutation_path is not None:
             res.mutation_path = ctx.mutation_path
@@ -44,7 +50,14 @@ class ExecutionContextSerializer:
                 `MessageNode` in the path.
         """
 
-        res = ExecutionContext(ctx.protocol_name, ProtocolPathSerializer.deserialize(ctx.path))
+        res = ExecutionContext(
+            ctx.protocol_name,
+            ctx.epoch,
+            ProtocolPathSerializer.deserialize(ctx.path)
+        )
+
+        if ctx.HasField('test_case'):
+            res.test_case = ctx.test_case
         if ctx.HasField('mutation_path'):
             res.mutation_path = ctx.mutation_path
         if ctx.HasField('mutator'):

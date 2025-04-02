@@ -85,7 +85,8 @@ class ProtocolEdgeSerializer(Serializer[agent_pb2.ProtocolEdge, ProtocolEdge]):
         res = agent_pb2.ProtocolEdge(
             src=ProtocolNodeSerializer.serialize(obj.src),
             dst=ProtocolNodeSerializer.serialize(obj.dst),
-            tags=obj.tags.value)
+            tags=obj.tags.value
+        )
 
         return res
 
@@ -117,9 +118,11 @@ class ProtocolEdgeSerializer(Serializer[agent_pb2.ProtocolEdge, ProtocolEdge]):
         if tags is None or msg.tags != 0:
             raise DeserializationError("Invalid tags")
 
-        return ProtocolEdge(ProtocolNodeSerializer.deserialize(msg.src),
-                            ProtocolNodeSerializer.deserialize(msg.dst),
-                            tags)
+        return ProtocolEdge(
+            ProtocolNodeSerializer.deserialize(msg.src),
+            ProtocolNodeSerializer.deserialize(msg.dst),
+            tags
+        )
 
 
 class ProtocolPathSerializer(Serializer[agent_pb2.ProtocolPath, ProtocolPath]):

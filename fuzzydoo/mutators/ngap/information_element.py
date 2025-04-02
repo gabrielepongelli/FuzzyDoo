@@ -5,28 +5,28 @@ from .aper import AperPreambleBaseMutator, AperLengthBaseMutator
 
 
 @mutates(InformationElement)
-class IEAperPreambleRandomMutator(AperPreambleBaseMutator):
+class IEAperPreambleRandomMutator(AperPreambleBaseMutator[InformationElement]):
     """Mutator for `InformationElement` objects that generate random values for the APER preamble."""
 
-    ATTRIBUTE_NAME = 'ie_preamble'
+    FIELD_NAME = 'ie_preamble'
 
 
 @mutates(InformationElement)
-class IEAperLengthRandomMutator(AperLengthBaseMutator):
+class IEAperLengthRandomMutator(AperLengthBaseMutator[InformationElement]):
     """Mutator for `InformationElement` objects that generate random values for the APER length 
     without requiring some fragmentation."""
 
-    ATTRIBUTE_NAME = 'ie_content_length'
+    FIELD_NAME = 'ie_content_length'
 
     GENERATION_RANGE = (0, AperEntity.DETERMINANT_SIZES[0])
 
 
 @mutates(InformationElement)
-class IEAperFragmentedLengthRandomMutator(AperLengthBaseMutator):
+class IEAperFragmentedLengthRandomMutator(AperLengthBaseMutator[InformationElement]):
     """Mutator for `InformationElement` objects that generate random values for the APER length 
     such that it requires fragmentation."""
 
-    ATTRIBUTE_NAME = 'ie_content_length'
+    FIELD_NAME = 'ie_content_length'
 
     GENERATION_RANGE = (AperEntity.DETERMINANT_SIZES[0], AperEntity.DETERMINANT_SIZES[-1])
 

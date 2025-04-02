@@ -180,7 +180,7 @@ def extract_from_nas_mm(data: bytes, decipher: NASSecurity, src: str, dst: str) 
     return msg.content['PayloadContainer']['V'], msg
 
 
-def include_in_nas_mm(msg, data: bytes, cipher: NASSecurity, src: str, dst: str) -> bytes | None:
+def include_in_nas_mm(msg: NASMessage, data: bytes, cipher: NASSecurity, src: str, dst: str) -> bytes | None:
     """Include the given data into a NAS-MM message at the specified path.
 
     This function attempts to insert the provided data into an NAS-MM message.
@@ -218,7 +218,7 @@ class MissingConfigError(ProxyError):
 
 
 class SocketError(ProxyError):
-    """Error raised if either the `bind`, `listen`, or `accept` socket function fails."""
+    """Error raised if either the `bind`, `listen`, `accept` or `connect` socket function fails."""
 
 
 SocketT = TypeVar('SocketT', bound=socket.socket)
@@ -1051,6 +1051,9 @@ class NetworkProxy(EventStoppableThread, ExceptionRaiserThread, Generic[SocketT]
             connection_socket: The network socket representing the client connection to this proxy.
             peer_info: A tuple containing the IP address and port number of the client connected to
                 this proxy.
+
+        Raises:
+            OSError: If some error occurs during the connection to the other peer.
         """
 
         logging.info("Accepted connection from %s", peer_info[0], extra={'entity': 'Proxy'})
@@ -1152,8 +1155,14 @@ class NetworkProxy(EventStoppableThread, ExceptionRaiserThread, Generic[SocketT]
                 logging.error(msg, extra={'entity': 'Proxy'})
                 self.is_error_recoverable = True
                 raise SocketError(msg) from e
-            else:
+            try:
                 self._handle_connection(client_socket, peer_info)
+            except OSError as e:
+                self._server_socket.close()
+                msg = f"Error on connect: {e}"
+                logging.error(msg, extra={'entity': 'Proxy'})
+                self.is_error_recoverable = True
+                raise SocketError(msg) from e
 
         self._server_socket.close()
         logging.info("Proxy stopped", extra={'entity': 'Proxy'})
@@ -1177,6 +1186,7 @@ class SCTPProxy(NetworkProxy[SctpSocketT]):
     @override
     def _setup_source_socket(self) -> SocketT:
         sock = cast(SctpSocketT, sctp.sctpsocket_tcp(socket.AF_INET))
+        sock.sock().setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind((self.listen_ip, self.listen_port))
         except OSError as e:
@@ -1384,6 +1394,17 @@ class NetworkProxyAgent(GrpcClientAgent):
                         forward data.
                     - `'to_port'`: A number representing the SCTP port to which the proxy will
                         forward data.
+                - `'restart_on_epoch'` (optional): Whether the proxy should be started and stopped 
+                        respectively at the beginning and at the end of every epoch. Defaults to 
+                        `False`.
+                - `'restart_on_test'` (optional): Whether the proxy should be started and stopped 
+                        respectively at the beginning and at the end of every test case or not. 
+                        Defaults to `False`.
+                - `'restart_on_redo'` (optional): Whether the proxy should be restarted before 
+                        re-performing a test case or not. Defaults to `False`.
+                - `'restart_on_fault'` (optional): Whether the proxy should be restarted at the end 
+                        of a test case after a fault has been found or not (even if 
+                        `restart_on_test` is set to `False`). Defaults to `False`.
 
                 In case the proxy is used to fuzz the NAS-SM protocol, it must contain the 
                 following additional keys:
@@ -1404,7 +1425,7 @@ class NetworkProxyAgent(GrpcClientAgent):
         super().set_options(**kwargs)
 
     @override
-    def get_supported_paths(self, protocol: str) -> list[list[str]]:
+    def get_supported_paths(self, protocol: str) -> list[list[dict[str, str | bool]]]:
         return []
 
     @override
@@ -1415,20 +1436,20 @@ class NetworkProxyAgent(GrpcClientAgent):
     def skip_epoch(self, ctx: ExecutionContext) -> bool:
         return False
 
-    @override
-    def on_fault(self):
-        return
-
 
 class NetworkProxyServerAgent(GrpcServerAgent):
     """Server agent that controls a network proxy."""
 
-    DEFAULT_OPTIONS: dict[str, str | int | None] = {
+    DEFAULT_OPTIONS: dict[str, str | int | bool | None] = {
         'listen_ip': None,
         'listen_port': None,
         'forward_from_ip': None,
         'forward_to_ip': None,
         'forward_to_port': None,
+        'restart_on_epoch': False,
+        'restart_on_test': False,
+        'restart_on_redo': False,
+        'restart_on_fault': False,
         'op': None,
         'op_type': None,
         'key': None,
@@ -1447,7 +1468,7 @@ class NetworkProxyServerAgent(GrpcServerAgent):
         'listen_ip', 'listen_port', 'forward_from_ip', 'forward_to_ip', 'forward_to_port',
         'op', 'op_type', 'key', 'mcc', 'mnc', 'supi']
 
-    options: dict[str, str | int | None]
+    options: dict[str, str | int | bool | None]
     """Options currently set on the agent."""
 
     def __init__(self, **kwargs):
@@ -1460,50 +1481,35 @@ class NetworkProxyServerAgent(GrpcServerAgent):
         self.set_options(**kwargs)
 
         self._fault_detected: bool = False
+        self._test_case_ctx: ExecutionContext = None
 
     @override
     def set_options(self, **kwargs):
-        if 'listen' in kwargs:
-            listen_configs = kwargs['listen']
-            if 'ip' in listen_configs:
-                self.options['listen_ip'] = listen_configs['ip']
-                logging.info('Set listen[ip] = %s', listen_configs['ip'])
-            if 'port' in listen_configs:
-                self.options['listen_port'] = listen_configs['port']
-                logging.info('Set listen[port] = %s', listen_configs['port'])
+        for key, val in kwargs.items():
+            if key in {'listen', 'forward'}:
+                for k, v in val.items():
+                    local_key = key + '_' + k
+                    if local_key not in self.options:
+                        continue
 
-        if 'forward' in kwargs:
-            forward_configs = kwargs['forward']
-            if 'from_ip' in forward_configs:
-                self.options['forward_from_ip'] = forward_configs['from_ip']
-                logging.info('Set forward[from_ip] = %s', forward_configs['from_ip'])
-            if 'to_ip' in forward_configs:
-                self.options['forward_to_ip'] = forward_configs['to_ip']
-                logging.info('Set forward[to_ip] = %s', forward_configs['to_ip'])
-            if 'to_port' in forward_configs:
-                self.options['forward_to_port'] = forward_configs['to_port']
-                logging.info('Set forward[to_port] = %s', forward_configs['to_port'])
+                    self.options[local_key] = v
+                    logging.info('Set %s[%s] = %s', key, k, v)
+                continue
 
-        if 'sim' in kwargs:
-            sim_configs = kwargs['sim']
-            if 'op' in sim_configs:
-                self.options['op'] = sim_configs['op']
-                logging.info('Set sim[op] = %s', sim_configs['op'])
-            if 'op_type' in sim_configs:
-                self.options['op_type'] = sim_configs['op_type']
-                logging.info('Set sim[op_type] = %s', sim_configs['op_type'])
-            if 'key' in sim_configs:
-                self.options['key'] = sim_configs['key']
-                logging.info('Set sim[key] = %s', sim_configs['key'])
-            if 'mcc' in sim_configs:
-                self.options['mcc'] = sim_configs['mcc']
-                logging.info('Set sim[mcc] = %s', sim_configs['mcc'])
-            if 'mnc' in sim_configs:
-                self.options['mnc'] = sim_configs['mnc']
-                logging.info('Set sim[mnc] = %s', sim_configs['mnc'])
-            if 'supi' in sim_configs:
-                self.options['supi'] = sim_configs['supi']
-                logging.info('Set sim[supi] = %s', sim_configs['supi'])
+            if key == 'sim':
+                for k, v in val.items():
+                    if k not in self.options:
+                        continue
+
+                    self.options[k] = v
+                    logging.info('Set %s[%s] = %s', key, k, v)
+                continue
+
+            if key not in self.options:
+                continue
+
+            self.options[key] = val
+            logging.info('Set %s = %s', key, val)
 
     @override
     def reset(self):
@@ -1511,9 +1517,25 @@ class NetworkProxyServerAgent(GrpcServerAgent):
         self._proxy = None
         self._publisher_map = {}
         self._fault_detected = False
+        self._test_case_ctx = None
 
-    @override
-    def on_test_start(self, ctx: ExecutionContext):
+    def _start_procedure(self, ctx: ExecutionContext):
+        """Start the network proxy based on the provided execution context.
+
+        This method initializes and starts the appropriate network proxy instance
+        based on the protocol specified in the execution context.
+
+        Args:
+            ctx: The execution context containing protocol-specific information required to 
+                configure the proxy.
+
+        Raises:
+            AgentError: If:
+                - The protocol specified in the execution context is unsupported.
+                - Some required configuration parameters are missing.
+                - An error occurswhile starting the proxy.
+        """
+
         try:
             match ctx.protocol_name:
                 case 'NGAP':
@@ -1541,10 +1563,16 @@ class NetworkProxyServerAgent(GrpcServerAgent):
         if self._proxy.is_error_occurred:
             self._publisher_map = {}
             self._proxy.join()
-            raise self._proxy.exception
+            raise AgentError(self._proxy.exception)
 
-    @override
-    def on_test_end(self):
+    def _stop_procedure(self):
+        """Stop the network proxy and clean up resources.
+
+        Raises:
+            AgentError: If an error occurred while stopping the proxy or if the proxy
+                encountered an unrecoverable error during its operation.
+        """
+
         self._publisher_map = {}
 
         if self._proxy is None:
@@ -1555,7 +1583,42 @@ class NetworkProxyServerAgent(GrpcServerAgent):
         self._fault_detected = self._proxy.fault_detected
 
         if self._proxy.is_error_occurred:
-            raise self._proxy.exception
+            raise AgentError(self._proxy.exception)
+
+        self._proxy = None
+
+    @override
+    def on_epoch_start(self, ctx: ExecutionContext):
+        if self.options['restart_on_epoch']:
+            self._start_procedure(ctx)
+
+    @override
+    def on_epoch_end(self):
+        if self.options['restart_on_epoch'] and self._proxy is not None:
+            self._stop_procedure()
+
+    @override
+    def on_test_start(self, ctx: ExecutionContext):
+        if (self.options['restart_on_test'] or self._fault_detected) and self._proxy is None:
+            self._fault_detected = False
+            self._start_procedure(ctx)
+
+        self._test_case_ctx = ctx
+
+    @override
+    def on_test_end(self):
+        if (self.options['restart_on_test'] or self._fault_detected) and self._proxy is not None:
+            self._stop_procedure()
+
+    @override
+    def on_redo(self):
+        if self.options['restart_on_redo'] and self._proxy is not None:
+            self._stop_procedure()
+            self._start_procedure(self._test_case_ctx)
+
+    @override
+    def on_fault(self):
+        self._fault_detected = self.options['restart_on_fault']
 
     @override
     def fault_detected(self) -> bool:
@@ -1563,11 +1626,20 @@ class NetworkProxyServerAgent(GrpcServerAgent):
 
     @override
     def redo_test(self) -> bool:
-        return self._proxy.is_error_occurred and self._proxy.is_error_recoverable
+        return self._proxy is not None \
+            and self._proxy.is_error_occurred \
+            and self._proxy.is_error_recoverable
 
     @override
     def stop_execution(self) -> bool:
-        return self._proxy.is_error_occurred and not self._proxy.is_error_recoverable
+        return self._proxy is not None \
+            and self._proxy.is_error_occurred \
+            and not self._proxy.is_error_recoverable
+
+    @override
+    def on_shutdown(self):
+        if self._proxy is not None:
+            self._stop_procedure()
 
     @override
     def start(self, pub_id: int):
@@ -1635,8 +1707,7 @@ def main():
         sys.stderr.write("Error: No IP address and port specified\n")
         sys.exit(1)
 
-    logging.basicConfig(level=logging.DEBUG,
-                        format="[%(entity)s][%(levelname)s] - %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="[%(entity)s][%(levelname)s] - %(message)s")
 
     class DefaultEntityFilter(logging.Filter):
         @override

@@ -9,22 +9,22 @@ from ..protocol import MessageNode, Protocol, EdgeTag, ProtocolEdge, ProtocolNod
 class CapabilityAction(Enum):
     """Enumeration of possible actions to perform on capabilities within a `CapabilityProtocol`.
 
-    This enum defines the fundamental operations that can be performed on capabilities: adding, 
-    removing, and requiring. These actions are used in conjunction with `CapabilityNodes` to model 
+    This enum defines the fundamental operations that can be performed on capabilities: adding,
+    removing, and requiring. These actions are used in conjunction with `CapabilityNodes` to model
     the flow of capabilities through a protocol graph.
 
     Actions:
         ADD: Represents the action of granting or adding a capability.
-            When encountered, this action adds the associated capability to the current set of 
+            When encountered, this action adds the associated capability to the current set of
             active capabilities.
 
         REMOVE: Represents the action of revoking or removing a capability.
-            When encountered, this action removes the associated capability from the current set of 
+            When encountered, this action removes the associated capability from the current set of
             active capabilities, if present.
 
         REQUIRE: Represents a checkpoint that requires a specific capability.
-            When encountered, this action checks if the associated capability is present in the 
-            current set of active capabilities. If not, it may block further progress along that 
+            When encountered, this action checks if the associated capability is present in the
+            current set of active capabilities. If not, it may block further progress along that
             path in the protocol graph.
     """
 
@@ -38,17 +38,17 @@ class CapabilityAction(Enum):
     """Check if the capability is part of the set of unlocked capabilities."""
 
 
-@dataclass
+@dataclass(eq=False)
 class CapabilityNode(ProtocolNode):
     """A specialized node in the protocol graph that represents a capability action.
 
-    `CapabilityNode` extends `ProtocolNode` to model capability-related operations within a 
-    `CapabilityProtocol`. Each node represents a single action (see `CapabilityAction`) associated 
+    `CapabilityNode` extends `ProtocolNode` to model capability-related operations within a
+    `CapabilityProtocol`. Each node represents a single action (see `CapabilityAction`) associated
     with a specific capability.
     """
 
     action: CapabilityAction
-    """The capability action associated with this node. This determines how the node affects the 
+    """The capability action associated with this node. This determines how the node affects the
     capability state when encountered during protocol traversal."""
 
     capability: str
@@ -58,14 +58,14 @@ class CapabilityNode(ProtocolNode):
 class CapabilityProtocol(Protocol):
     """A specialized protocol for managing and validating capability-based interactions.
 
-    This class extends the base `Protocol` class to handle capability-related operations, including 
-    adding, removing, and requiring capabilities during protocol execution. It provides methods for 
-    creating capability nodes, iterating through valid paths based on capability constraints, and 
+    This class extends the base `Protocol` class to handle capability-related operations, including
+    adding, removing, and requiring capabilities during protocol execution. It provides methods for
+    creating capability nodes, iterating through valid paths based on capability constraints, and
     checking the validity of paths considering capability requirements.
 
-    The `CapabilityProtocol` class introduces specialized methods for handling `CapabilityNode` 
-    instances and ensures that paths through the protocol graph adhere to the specified capability 
-    constraints. This allows for modeling complex permission-based or role-based interaction flows 
+    The `CapabilityProtocol` class introduces specialized methods for handling `CapabilityNode`
+    instances and ensures that paths through the protocol graph adhere to the specified capability
+    constraints. This allows for modeling complex permission-based or role-based interaction flows
     within the protocol.
     """
 
@@ -147,7 +147,7 @@ class CapabilityProtocol(Protocol):
                 yield path
 
     @override
-    def _build_path_from_names(self, names: list[str]) -> ProtocolPath | None:
+    def _get_path_from_list(self, records: list[dict[str, str | bool]]) -> ProtocolPath | None:
         # this keeps track of the message index in the current recursive call
         msg_idx_stack = [0]
 
@@ -180,7 +180,11 @@ class CapabilityProtocol(Protocol):
                 return True
 
             if isinstance(next_node, MessageNode) \
-                    and next_node.msg.name != names[msg_idx_stack[-1]]:
+                    and (next_node.msg.name != records[msg_idx_stack[-1]]['name']
+                         or (next_node.src != records[msg_idx_stack[-1]]['src'])
+                         or (next_node.dst != records[msg_idx_stack[-1]]['dst'])
+                         or (records[msg_idx_stack[-1]]['optional']
+                             and EdgeTag.OPTIONAL not in edge.tags)):
                 return True
 
             # if we don't have the required capability to visit the destination node, then skip
@@ -197,15 +201,16 @@ class CapabilityProtocol(Protocol):
             caps_stack.append(list(caps_stack[-1]))
 
             if isinstance(edge.dst, MessageNode):
-                # since we know that edge.dst.msg.name == names[msg_idx_stack[-2]] (because
-                # otherwise we would have skipped this edge) we can increment the new message index
+                # since we know that edge.dst.msg.name == records[msg_idx_stack[-2]]['name']
+                # (because otherwise we would have skipped this edge) we can increment the new
+                # message index
                 msg_idx_stack[-1] += 1
             elif isinstance(edge.dst, CapabilityNode):
                 self._update_capabilities(caps_stack[-1], edge.dst)
 
-            # if we reached the last element of the names' list, if they are equal we finally
+            # if we reached the last element of the records' list, if they are equal we finally
             # found a path
-            return msg_idx_stack[-1] == len(names)
+            return msg_idx_stack[-1] == len(records)
 
         def on_exit(_):
             # since if we enter in another recursion level, we always push something on the stack

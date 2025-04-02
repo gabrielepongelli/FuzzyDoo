@@ -30,9 +30,19 @@ class ComposeRestartAgent(GrpcClientAgent):
         Args:
             kwargs: Additional keyword arguments. It must contain the following keys:
                 - `'compose_yaml_path'`: The path to the `docker-compose.yaml` file.
-                - `'restart_anyway'` (optional): Whether the containers in the compose setting 
-                    should be restarted in `on_test_start` even if they are already running. 
-                    Defaults to `False`.
+                - `'clean_volumes_on_restart'` (optional): Whether to remove all the volumes in the 
+                        docker compose setup after on each restart. Defaults to `False`. 
+                - `'restart_on_epoch'` (optional): Whether the containers in the compose setting 
+                        should be started and stopped respectively at the beginning and at the end 
+                        of every epoch. Defaults to `False`.
+                - `'restart_on_test'` (optional): Whether the containers in the compose setting 
+                        should be started and stopped respectively at the beginning and at the end of every test case or not. Defaults to `False`.
+                - `'restart_on_redo'` (optional): Whether the containers in the compose setting 
+                        should be restarted before re-performing a test case or not. Defaults to 
+                        `False`.
+                - `'restart_on_fault'` (optional): Whether the containers in the compose setting 
+                        should be restarted at the end of a test case after a fault has been found 
+                        or not (even if `restart_on_test` is set to `False`). Defaults to `False`.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -93,7 +103,11 @@ class ComposeRestartServerAgent(GrpcServerAgent):
 
     DEFAULT_OPTIONS: dict[str, Path | bool | None] = {
         'compose_yaml_path': None,
-        'restart_anyway': False
+        'clean_volumes_on_restart': False,
+        'restart_on_epoch': False,
+        'restart_on_test': False,
+        'restart_on_redo': False,
+        'restart_on_fault': False,
     }
 
     options: dict[str, Path | bool | None]
@@ -108,13 +122,15 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         self._fault_detected: bool = False
 
     def set_options(self, **kwargs):
-        if 'compose_yaml_path' in kwargs:
-            self.options['compose_yaml_path'] = Path(kwargs['compose_yaml_path'])
-            logging.info('Set %s = %s', 'compose_yaml_path', self.options['compose_yaml_path'])
+        for key, val in kwargs.items():
+            if key not in self.options:
+                continue
 
-        if 'restart_anyway' in kwargs:
-            self.options['restart_anyway'] = kwargs['restart_anyway']
-            logging.info('Set %s = %s', 'restart_anyway', self.options['restart_anyway'])
+            if key == 'compose_yaml_path':
+                val = Path(kwargs[key])
+
+            self.options[key] = val
+            logging.info('Set %s = %s', key, val)
 
     @override
     def reset(self):
@@ -171,9 +187,12 @@ class ComposeRestartServerAgent(GrpcServerAgent):
             logging.error("No docker-compose.yaml path specified")
             raise AgentError("No docker-compose.yaml path specified")
 
+        compose_down_cmd = ["docker", "compose", "-f", self.options['compose_yaml_path'], "down"]
+        if self.options['clean_volumes_on_restart']:
+            compose_down_cmd.append("-v")
         try:
             subprocess.run(
-                ["docker", "compose", "-f", self.options['compose_yaml_path'], "down"],
+                compose_down_cmd,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
             )
         except subprocess.CalledProcessError as e1:
@@ -205,7 +224,7 @@ class ComposeRestartServerAgent(GrpcServerAgent):
                 time.sleep(1)
 
                 subprocess.run(
-                    ["docker", "compose", "-f", self.options['compose_yaml_path'], "down"],
+                    compose_down_cmd,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
                 )
             except subprocess.CalledProcessError as e2:
@@ -216,22 +235,35 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         logging.info("Docker compose setup stopped")
 
     @override
-    def on_test_start(self, ctx: ExecutionContext):
-        if not self._is_running():
+    def on_epoch_start(self, ctx: ExecutionContext):
+        if self.options['restart_on_epoch'] and not self._is_running():
             self._start_compose()
-        elif self.options['restart_anyway']:
+
+    @override
+    def on_epoch_end(self):
+        if self.options['restart_on_epoch']:
             self._stop_compose()
+
+    @override
+    def on_test_start(self, ctx: ExecutionContext):
+        if (self.options['restart_on_test'] or self._fault_detected) and not self._is_running():
+            self._fault_detected = False
             self._start_compose()
 
     @override
     def on_test_end(self):
-        if self.options['restart_anyway'] or self._fault_detected:
-            self._fault_detected = False
+        if self.options['restart_on_test'] or self._fault_detected:
             self._stop_compose()
 
     @override
+    def on_redo(self):
+        if self.options['restart_on_redo']:
+            self._stop_compose()
+            self._start_compose()
+
+    @override
     def on_fault(self):
-        self._fault_detected = True
+        self._fault_detected = self.options['restart_on_fault']
 
     @override
     def on_shutdown(self):
@@ -256,8 +288,7 @@ def main():
         sys.stderr.write("Error: No IP address and port specified\n")
         sys.exit(1)
 
-    logging.basicConfig(level=logging.DEBUG,
-                        format="[%(levelname)s] - %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] - %(message)s")
 
     agent = ComposeRestartServerAgent(address=args.ip, port=args.port)
     agent.serve()

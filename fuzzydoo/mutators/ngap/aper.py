@@ -1,13 +1,11 @@
-from typing import Any, override
+from typing import Any, Generic, override
 from random import Random
 
-from ...mutator import Mutator, Mutation, MutatorCompleted, MutatorNotApplicable, Fuzzable
+from ...mutator import Mutator, Mutation, MutatorCompleted, MutatorNotApplicable, FuzzableT
 
 
-class AperPreambleBaseMutator(Mutator):
+class AperPreambleBaseMutator(Mutator[FuzzableT, str], Generic[FuzzableT]):
     """Base mutator that generates random values for the APER preamble."""
-
-    ATTRIBUTE_NAME: str = ""
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -39,7 +37,7 @@ class AperPreambleBaseMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, data: Fuzzable, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: FuzzableT, state: dict[str, Any] | None = None) -> Mutation[str]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -50,12 +48,12 @@ class AperPreambleBaseMutator(Mutator):
             extracted_values = state['extracted_values']
             mutator_state = state
         elif self._size is None:
-            self._size = size = len(getattr(data, self.ATTRIBUTE_NAME))
+            self._size = size = len(getattr(data, self.FIELD_NAME))
             if not size:
                 # if there is no preamble
                 raise MutatorNotApplicable()
 
-            self._extracted_values.add(getattr(data, self.ATTRIBUTE_NAME))
+            self._extracted_values.add(getattr(data, self.FIELD_NAME))
             extracted_values = self._extracted_values
 
             mutator_state = self._export_state()
@@ -73,25 +71,26 @@ class AperPreambleBaseMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[str](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=self.ATTRIBUTE_NAME or data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=getattr(data, self.FIELD_NAME),
             mutated_value=self._last_extracted_value
         )
 
 
-class AperLengthBaseMutator(Mutator):
+class AperLengthBaseMutator(Mutator[FuzzableT, int], Generic[FuzzableT]):
     """Base mutator that generates random lengths for the APER encoding."""
 
     GENERATION_RANGE: tuple[int, int] = (0, 0)
-    ATTRIBUTE_NAME: str = ""
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
 
         self._extracted_values: set[int] = set()
-        self._last_extracted_value: str | None = None
+        self._last_extracted_value: int | None = None
 
     def _export_state(self) -> dict:
         """Export the current state of the `AperLengthBaseMutator`.
@@ -114,7 +113,7 @@ class AperLengthBaseMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, data: Fuzzable, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: FuzzableT, state: dict[str, Any] | None = None) -> Mutation[int]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -124,7 +123,7 @@ class AperLengthBaseMutator(Mutator):
             extracted_values = state['extracted_values']
             mutator_state = state
         elif not self._extracted_values:
-            length = getattr(data, self.ATTRIBUTE_NAME)
+            length = getattr(data, self.FIELD_NAME)
             if not length:
                 # if there is no content length specified
                 raise MutatorNotApplicable()
@@ -146,9 +145,11 @@ class AperLengthBaseMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[int](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=self.ATTRIBUTE_NAME or data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=getattr(data, self.FIELD_NAME),
             mutated_value=self._last_extracted_value
         )

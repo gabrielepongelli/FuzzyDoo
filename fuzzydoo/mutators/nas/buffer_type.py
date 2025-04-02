@@ -1,4 +1,4 @@
-from typing import Any, override
+from typing import Any, ClassVar, override
 from random import Random
 
 from ...mutator import Mutator, Mutation, MutatorCompleted, MutatorNotApplicable, mutates
@@ -6,10 +6,12 @@ from ...proto.nas.types import BufferType
 
 
 @mutates(BufferType)
-class BufferRandomMutator(Mutator):
+class BufferRandomMutator(Mutator[BufferType, bytes]):
     """Mutator for `BufferType` objects that generate random values that are not in the list of 
     possible ones.
     """
+
+    FIELD_NAME = 'value'
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -67,7 +69,7 @@ class BufferRandomMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, data: BufferType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: BufferType, state: dict[str, Any] | None = None) -> Mutation[bytes]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -98,22 +100,27 @@ class BufferRandomMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[bytes](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=self._last_extracted_value
         )
 
 
 @mutates(BufferType)
-class BufferPartialContentMutator(Mutator):
+class BufferPartialContentMutator(Mutator[BufferType, bytes]):
     """Mutator for `BufferType` objects that generates values with some different bytes w.r.t. the 
     original ones.
     """
 
-    _MAX_RANGE_DELTA = 50
-    _SPECIAL_VALUES = [b"\x00", b"\x01", b"\xfe", b"\xff"]
+    FIELD_NAME = 'value'
+
+    MAX_RANGE_DELTA: ClassVar[int] = 50
+
+    SPECIAL_VALUES: ClassVar[list[bytes]] = [b"\x00", b"\x01", b"\xfe", b"\xff"]
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -149,7 +156,7 @@ class BufferPartialContentMutator(Mutator):
         val1 = rand.randint(0, size)
         val2 = rand.randint(0, size)
         start, end = (min(val1, val2), max(val1, val2))
-        return (start, min(end, start + self._MAX_RANGE_DELTA))
+        return (start, min(end, start + self.MAX_RANGE_DELTA))
 
     def _range_to_random(self, data: bytes, rand: Random) -> bytes:
         """Change a random sequence of bytes in the buffer.
@@ -178,7 +185,7 @@ class BufferPartialContentMutator(Mutator):
 
         start, end = self._random_range(len(data), rand)
         for i in range(start, end):
-            data = data[:i] + rand.choice(self._SPECIAL_VALUES) + data[i + 1:]
+            data = data[:i] + rand.choice(self.SPECIAL_VALUES) + data[i + 1:]
         return data
 
     def _range_to_null(self, data: bytes, rand: Random) -> bytes:
@@ -217,7 +224,7 @@ class BufferPartialContentMutator(Mutator):
         self._extracted_values.add(self._last_extracted_value)
 
     @override
-    def mutate(self, data: BufferType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: BufferType, state: dict[str, Any] | None = None) -> Mutation[bytes]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -247,10 +254,12 @@ class BufferPartialContentMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[bytes](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=self._last_extracted_value
         )
 

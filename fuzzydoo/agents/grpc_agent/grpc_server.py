@@ -3,6 +3,8 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 
 import grpc
+from google.protobuf.any_pb2 import Any
+from google.protobuf.wrappers_pb2 import StringValue, BoolValue, BytesValue, Int32Value, UInt32Value, Int64Value, UInt64Value
 
 from ...agent import Agent
 from .generated import agent_pb2, agent_pb2_grpc
@@ -14,6 +16,10 @@ from ...utils.errs import *
 
 class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
     """A gRPC server representing a remote agent."""
+
+    server: grpc.Server
+    """The gRPC server instance. This can be used inside a method of the `Agent` class to stop the 
+    execution of the server with `server.stop()`."""
 
     def __init__(self, name: str | None = None, /, **kwargs):
         """Initialize an `GrpcServerAgent` instance with the provided arguments.
@@ -35,13 +41,11 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
 
         self._address: str = kwargs['address']
         self._port: int = kwargs['port']
-        self.server = grpc.server(ThreadPoolExecutor(max_workers=1))
-        """The gRPC server instance. This can be used inside a method of the `Agent` class to stop 
-        the execution of the server with `server.stop()`."""
-
-        agent_pb2_grpc.add_AgentServiceServicer_to_server(
-            self, self.server)
-
+        self.server = grpc.server(
+            ThreadPoolExecutor(max_workers=1),
+            options=[('grpc.max_receive_message_length', -1), ('grpc.max_send_message_length', -1)]
+        )
+        agent_pb2_grpc.add_AgentServiceServicer_to_server(self, self.server)
         self.server.add_insecure_port(f"{self._address}:{self._port}")
 
     @property
@@ -64,8 +68,7 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         gracefully.
         """
 
-        logging.info('Starting gRPC server at %s:%s',
-                     self._address, self._port)
+        logging.info('Starting gRPC server at %s:%s', self._address, self._port)
         self.server.start()
         logging.info('Started')
 
@@ -144,12 +147,77 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
         # pylint: disable=not-an-iterable
         for p in res:
             path = agent_pb2.ResponseMessage.ProtocolPathsData.ProtocolPath()
-            path.messages.extend(p)
+            for m in p:
+                msg = agent_pb2.ResponseMessage.ProtocolPathsData.ProtocolMessage()
+                for k, v in m.items():
+                    any_value = Any()
+                    if isinstance(v, str):
+                        any_value.Pack(StringValue(value=v))
+                    elif isinstance(v, bool):
+                        any_value.Pack(BoolValue(value=v))
+                    elif isinstance(v, bytes):
+                        any_value.Pack(BytesValue(value=v))
+                    elif isinstance(v, int):
+                        if v >= 0:
+                            bl = v.bit_length()
+                            if bl <= 32:
+                                any_value.Pack(UInt32Value(value=v))
+                            elif bl <= 64:
+                                any_value.Pack(UInt64Value(value=v))
+                            else:
+                                any_value.Pack(StringValue(value=str(v)))
+                        else:
+                            bl = v.bit_length()
+                            if bl <= 32:
+                                any_value.Pack(Int32Value(value=v))
+                            elif bl <= 64:
+                                any_value.Pack(Int64Value(value=v))
+                            else:
+                                any_value.Pack(StringValue(value=str(v)))
+                    else:
+                        raise AgentError(f"Unsupported type: {type(v).__name__}")
+                    msg.message[k].CopyFrom(any_value)
+                path.messages.append(msg)
             paths.paths.append(path)
         data = agent_pb2.ResponseMessage.Data(protocol_paths=paths)
 
         # pylint: disable=no-member
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, data=data)
+
+    def onEpochStart(self, request, context):
+        logging.debug('onEpochStart')
+
+        if not request.HasField('ctx'):
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error="No execution context available")
+
+        try:
+            ctx = ExecutionContextSerializer.deserialize(request.ctx)
+            self.on_epoch_start(ctx)
+        except (AgentError, DeserializationError) as e:
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error=str(e))
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
+
+    def onEpochEnd(self, request, context):
+        logging.debug('onEpochEnd')
+
+        try:
+            self.on_epoch_end()
+        except AgentError as e:
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error=str(e))
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
 
     def onTestStart(self, request, context):
         logging.debug('onTestStart')
@@ -198,14 +266,10 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
                 error=str(e))
 
         # pylint: disable=no-member
-        records = [agent_pb2.ResponseMessage.TestData.TestDataRecord(
-            name=r[0], content=r[1]) for r in res]
-        data = agent_pb2.ResponseMessage.TestData()
-        data.records.extend(records)
-        data = agent_pb2.ResponseMessage.Data(test_data=data)
-
-        # pylint: disable=no-member
-        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, data=data)
+        for r in res:
+            record = agent_pb2.ResponseMessage.TestDataRecord(name=r[0], content=r[1])
+            data = agent_pb2.ResponseMessage.Data(test_data=record)
+            yield agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, data=data)
 
     def skipEpoch(self, request, context):
         logging.debug('skipTest')
@@ -241,6 +305,20 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
 
         # pylint: disable=no-member
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, flag=res)
+
+    def onRedo(self, request, context):
+        logging.debug('onRedo')
+
+        try:
+            self.on_redo()
+        except AgentError as e:
+            # pylint: disable=no-member
+            return agent_pb2.ResponseMessage(
+                status=agent_pb2.ResponseMessage.Status.ERROR,
+                error=str(e))
+
+        # pylint: disable=no-member
+        return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK)
 
     def faultDetected(self, request, context):
         logging.debug('faultDetected')

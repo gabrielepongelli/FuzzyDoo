@@ -26,8 +26,10 @@ GENERIC_TOTAL = reduce(operator.mul, [v[1] - v[0] for k, v in RANGES.items()])
 
 
 @mutates(TimeUTCType, TimeGenType)
-class TimeMutator(Mutator):
+class TimeMutator(Mutator[TimeUTCType | TimeGenType, tuple]):
     """Mutator for generic time objects that generate random dates."""
+
+    FIELD_NAME = 'value'
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -36,7 +38,7 @@ class TimeMutator(Mutator):
         self._extracted_values: set[tuple] = set()
 
     def _export_state(self) -> dict:
-        """Export the current state of the `IntRandomMutator`.
+        """Export the current state.
 
         Returns:
             dict: A dictionary containing the following keys:
@@ -113,7 +115,7 @@ class TimeMutator(Mutator):
                 res['fraction'],
                 res['zone'])
 
-    def _mutate(self, data: TimeUTCType | TimeGenType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation | None:
+    def _mutate(self, data: TimeUTCType | TimeGenType | None, update_state: bool, state: dict[str, Any] | None = None) -> Mutation[tuple] | None:
         """Helper method for `mutate` and `next`.
 
         Since the operations performed for `mutate` and `next` are almost identical, they are
@@ -144,17 +146,21 @@ class TimeMutator(Mutator):
             if len(self._extracted_values) == tot:
                 raise MutatorCompleted()
         else:
-            return Mutation(mutator=type(self),
-                            mutator_state=self._export_state(),
-                            field_name=data.name,
-                            mutated_value=value)
+            return Mutation[tuple](
+                mutator=type(self),
+                mutator_state=self._export_state(),
+                qname=data.qualified_name,
+                field_name=self.FIELD_NAME,
+                original_value=data.value,
+                mutated_value=value
+            )
 
     @override
     def next(self):
         self._mutate(None, True)
 
     @override
-    def mutate(self, data: TimeUTCType | TimeGenType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: TimeUTCType | TimeGenType, state: dict[str, Any] | None = None) -> Mutation[tuple]:
         return self._mutate(data, False, state)
 
 

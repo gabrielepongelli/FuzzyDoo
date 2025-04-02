@@ -13,6 +13,9 @@ class Node:
     def __eq__(self, value: object) -> bool:
         return isinstance(value, Node) and value.id == self.id
 
+    def __hash__(self):
+        return hash(self.id)
+
 
 NodeT = TypeVar('NodeT', bound=Node)
 
@@ -65,7 +68,7 @@ class Edge(Generic[NodeT]):
         self.dst = dst
 
     def __eq__(self, value: object) -> bool:
-        return isinstance(value, Edge[NodeT]) and value.id == self.id
+        return isinstance(value, Edge) and value.id == self.id
 
 
 EdgeT = TypeVar('EdgeT', bound=Edge)

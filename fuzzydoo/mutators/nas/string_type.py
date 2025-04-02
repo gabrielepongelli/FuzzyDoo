@@ -1,5 +1,6 @@
-from typing import Any, override
+from typing import Any, ClassVar, override
 from random import Random
+from math import ceil
 
 from ...mutator import Mutator, Mutation, MutatorCompleted, MutatorNotApplicable, mutates
 from ...proto.nas.types import StringType
@@ -7,8 +8,10 @@ from ...utils.chars import CHAR_RANGES, TOTAL_CHARS
 
 
 @mutates(StringType)
-class StringRandomMutator(Mutator):
+class StringRandomMutator(Mutator[StringType, str]):
     """Mutator for `StringType` objects that generate random strings in their codec."""
+
+    FIELD_NAME = 'value'
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -59,7 +62,7 @@ class StringRandomMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, data: StringType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: StringType, state: dict[str, Any] | None = None) -> Mutation[str]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -86,21 +89,25 @@ class StringRandomMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[str](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=self._last_extracted_value
         )
 
 
 @mutates(StringType)
-class StringBadEncodeMutator(Mutator):
+class StringBadEncodeMutator(Mutator[StringType, str]):
     """Mutator for `StringType` objects that generate strings with some invalid bytes for the codec 
     in use.
     """
 
-    _MAX_CHARS = 5
+    FIELD_NAME = 'value'
+
+    MAX_CHARS: ClassVar[int] = 5
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -137,7 +144,7 @@ class StringBadEncodeMutator(Mutator):
         """
 
         allowed_ranges = CHAR_RANGES[codec]
-        full_range = [(0, 2**(len(allowed_ranges[-1][-1].to_bytes()) * 8))]
+        full_range = [(0, 2**(ceil(allowed_ranges[-1][-1].bit_length() / 8) * 8))]
 
         bad_codes = set(range(*full_range))
         for start, end in allowed_ranges:
@@ -157,7 +164,7 @@ class StringBadEncodeMutator(Mutator):
             str: The modified string.
         """
 
-        n_changes = rand.randint(1, self._MAX_CHARS)
+        n_changes = rand.randint(1, self.MAX_CHARS)
         n_changes = min(n_changes, len(data))
 
         changed_chars_pos = []
@@ -170,7 +177,8 @@ class StringBadEncodeMutator(Mutator):
         new_data = b""
         for idx, c in enumerate(data):
             if idx in changed_chars_pos:
-                new_data += rand.choice(self._bad_code_points).to_bytes()
+                choice = rand.choice(self._bad_code_points)
+                new_data += choice.to_bytes(ceil(choice.bit_length() / 8))
             else:
                 new_data += c.encode(encoding=self._codec)
 
@@ -181,7 +189,7 @@ class StringBadEncodeMutator(Mutator):
         self._extracted_values.add(self._last_extracted_value)
 
     @override
-    def mutate(self, data: StringType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: StringType, state: dict[str, Any] | None = None) -> Mutation[str]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -212,10 +220,12 @@ class StringBadEncodeMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[str](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=self._last_extracted_value
         )
 

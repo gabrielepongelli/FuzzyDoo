@@ -18,7 +18,7 @@ from .types import map_type, UintType, BufferType
 
 # See TS 24.501 Annex A
 # NOTE: only these are actually used by pycrate
-_err_msgs = {
+err_msgs = {
     96: 'invalid mandatory info',
     97: 'message type non-existent or not implemented',
     111: 'unspecified protocol error',
@@ -323,7 +323,7 @@ class NASMessage(Message[Envelope]):
     hierarchical structure of NAS messages.
     """
 
-    def __init__(self, subset: str, msg_type: str, content: Envelope | None = None, delay: int = 0, n_replay: int = 1):
+    def __init__(self, subset: str, msg_type: str, content: Envelope | None = None, delay: int = 0, n_replay: int = 1, can_be_encrypted: bool = True):
         """Initialize a new `NASMessage` instance.
 
         Args:
@@ -333,12 +333,15 @@ class NASMessage(Message[Envelope]):
             delay (optional): The number of seconds to wait before sending the message. Defaults to 
                 `0`.
             n_replay (optional): The number of copies of this message to send. Defaults to `1`.
+            can_be_encrypted (optional): Whether the NAS message can be encrypted. Defaults to 
+                `True`.
         """
 
         super().__init__('NAS-' + subset, msg_type + 'Message', content, delay, n_replay)
 
         self._msg_type: str = msg_type
         self._ies: list[InformationElement] = []
+        self._can_be_encrypted: bool = can_be_encrypted
         if self._content is not None and not self.protected:
             ie: IE
             for idx, ie in enumerate(content):
@@ -395,10 +398,11 @@ class NASMessage(Message[Envelope]):
     def parse(self, data: bytes) -> "NASMessage":
         msg, err = parse_NAS5G(data, inner=False)
         if err:
-            raise MessageParsingError(f"Failed to parse NAS message with error {err}: {_err_msgs[err]}")
+            raise MessageParsingError(f"Failed to parse NAS message with error {err}: {err_msgs[err]}")
 
         msg_type = msg.__class__.__name__
-        if msg_type != self._msg_type and msg_type != 'FGMMSecProtNASMessage':
+        if msg_type != self._msg_type \
+                and (not self._can_be_encrypted or msg_type != 'FGMMSecProtNASMessage'):
             raise MessageParsingError(f"Wrong message type: '{msg_type}'")
 
         # pylint: disable=protected-access
@@ -476,8 +480,10 @@ for message_type in mm.values():
     message_type = message_type.__name__
 
     def _make_init_mm(msg_type: str) -> Callable[[Any, int, int], None]:
+        can_be_encrypted = msg_type != 'FGMMAuthenticationRequest'
+
         def new_init(self, content: Envelope | None = None, delay: int = 0, n_replay: int = 1):
-            NASMessage.__init__(self, 'MM', msg_type, content, delay, n_replay)
+            NASMessage.__init__(self, 'MM', msg_type, content, delay, n_replay, can_be_encrypted)
 
         return new_init
 

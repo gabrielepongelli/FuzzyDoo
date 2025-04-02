@@ -2,6 +2,7 @@ import argparse
 import sys
 import logging
 import subprocess
+import time
 from typing import override
 
 from ..agent import Agent, ExecutionContext
@@ -24,14 +25,22 @@ class ContainerMonitorAgent(GrpcClientAgent):
 
         Args:
             kwargs: Additional keyword arguments. It must contain the following keys:
-                `'containers'`: A list of strings representing the names of the containers to 
-                    monitor.
+                - `'containers'`: A list of strings representing the names of the containers to 
+                        monitor.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
                 `stop_execution` is called.
         """
         super().set_options(**kwargs)
+
+    @override
+    def on_epoch_start(self, ctx: ExecutionContext):
+        return
+
+    @override
+    def on_epoch_end(self):
+        return
 
     @override
     def on_test_start(self, ctx: ExecutionContext):
@@ -48,6 +57,10 @@ class ContainerMonitorAgent(GrpcClientAgent):
     @override
     def redo_test(self) -> bool:
         return False
+
+    @override
+    def on_redo(self):
+        return
 
     @override
     def on_fault(self):
@@ -107,6 +120,32 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
     def reset(self):
         self.options = dict(self.DEFAULT_OPTIONS)
 
+    def _get_exit_code(self, container: str) -> int | None:
+        """_summary_
+
+        _extended_summary_
+
+        Args:
+            container (str): _description_
+
+        Returns:
+            int: _description_
+        """
+
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "--format", "{{.State.Status}}:{{.State.ExitCode}}", container],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+            )
+        except subprocess.CalledProcessError as e:
+            err_msg = str(e.stderr).strip()
+            logging.error(err_msg)
+            raise AgentError(err_msg) from e
+
+        if 'exited' in result.stdout:
+            return result.stdout.strip().split(':')[1]
+        return None
+
     def _is_running(self, container: str) -> bool:
         """Check whether the specified container is running.
 
@@ -132,14 +171,11 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
 
         is_running = result.stdout.strip()
         if is_running == "true":
-            logging.info('Container %s running', container)
             return True
 
         if is_running == "false":
-            logging.info('Container %s not running', container)
             return False
 
-        logging.error("Unexpected output: %s", is_running)
         raise AgentError("Unexpected output: " + is_running)
 
     def _get_logs(self, container: str) -> bytes:
@@ -149,7 +185,7 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
             container: The name of the container.
 
         Returns:
-            bytes: The logs of the container.
+            bytes: The standard output and the standard error of the container.
 
         Raises:
             AgentError: If an error occurred while running the `docker logs` command.
@@ -157,8 +193,7 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
 
         try:
             result = subprocess.run(
-                ["docker", "logs", container],
-                stdout=subprocess.PIPE, text=True, check=True
+                ["docker", "logs", container], text=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
             )
         except subprocess.CalledProcessError as e:
             err_msg = str(e.stderr).strip()
@@ -173,19 +208,36 @@ class ContainerMonitorServerAgent(GrpcServerAgent):
             logging.error("No container name specified")
             raise AgentError("No container name specified")
 
-        for container in self.options['containers']:
-            if not self._is_running(container):
-                return True
+        # keep checking for 5 seconds
+        not_running = set()
+        start = time.time()
+        while time.time() - start < 5:
+            for container in self.options['containers']:
+                if not self._is_running(container):
+                    not_running.add(container)
 
-        return False
+        for container in self.options['containers']:
+            state = 'not running' if container in not_running else 'running'
+            logging.info('Container %s %s', container, state)
+
+        return bool(not_running)
 
     @override
     def get_data(self) -> list[tuple[str, bytes]]:
         res = []
+        exit_codes = b""
         for container in self.options['containers']:
-            logs = self._get_logs(container)
+            output = self._get_logs(container)
+
             record_name = container + ".log.txt"
-            res.append((record_name, logs))
+            res.append((record_name, output))
+
+            exit_code = self._get_exit_code(container)
+            exit_codes += f"{container}: {exit_code or ''}\n".encode()
+
+        record_name = "exit_codes.txt"
+        res.append((record_name, exit_codes))
+
         return res
 
 
@@ -203,8 +255,7 @@ def main():
         sys.stderr.write("Error: No IP address and port specified\n")
         sys.exit(1)
 
-    logging.basicConfig(level=logging.DEBUG,
-                        format="[%(levelname)s] - %(message)s")
+    logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] - %(message)s")
 
     agent = ContainerMonitorServerAgent(address=args.ip, port=args.port)
     agent.serve()

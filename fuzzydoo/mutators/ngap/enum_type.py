@@ -6,8 +6,10 @@ from ...proto.ngap.types import EnumType
 
 
 @mutates(EnumType)
-class EnumMutator(Mutator):
+class EnumMutator(Mutator[EnumType, str]):
     """Mutator for `EnumType` objects."""
+
+    FIELD_NAME = 'value'
 
     def __init__(self, seed: int = 0):
         super().__init__(seed)
@@ -36,7 +38,7 @@ class EnumMutator(Mutator):
             raise MutatorCompleted()
 
     @override
-    def mutate(self, data: EnumType, state: dict[str, Any] | None = None) -> Mutation:
+    def mutate(self, data: EnumType, state: dict[str, Any] | None = None) -> Mutation[str]:
         rand = Random()
         rand.setstate(self._rand.getstate())
         mutator_state: dict
@@ -57,10 +59,12 @@ class EnumMutator(Mutator):
         if state is None:
             self._rand = rand
 
-        return Mutation(
+        return Mutation[str](
             mutator=type(self),
             mutator_state=mutator_state,
-            field_name=data.name,
+            qname=data.qualified_name,
+            field_name=self.FIELD_NAME,
+            original_value=data.value,
             mutated_value=self._last_extracted_value
         )
 

@@ -16,6 +16,12 @@ class ExecutionContext:
     protocol_name: str
     """Name of the protocol on which FuzzyDoo is executed."""
 
+    epoch: int
+    """The current epoch index."""
+
+    test_case: int | None
+    """The current test case index."""
+
     path: ProtocolPath
     """The specific protocol path on which the agent method is invoked."""
 
@@ -25,8 +31,10 @@ class ExecutionContext:
     mutator: str | None
     """Name of the mutator to be used for the mutation."""
 
-    def __init__(self, protocol_name: str, path: ProtocolPath, mutation_path: str | None = None, mutator: str | None = None):
+    def __init__(self, protocol_name: str, epoch: int, path: ProtocolPath, test_case: int | None = None, mutation_path: str | None = None, mutator: str | None = None):
         self.protocol_name = protocol_name
+        self.epoch = epoch
+        self.test_case = test_case
         self.path = path
         self.mutation_path = mutation_path
         self.mutator = mutator
@@ -58,15 +66,14 @@ class Agent(PublisherSource):
             if agent.skip_epoch(ctx):
                 continue
 
+            agent.on_epoch_start(ctx)
+
             # Do some other stuffs...
 
             agent.on_test_start(ctx)
             # Test case started
             with test_case:
                 # Execute some actions...
-
-                if agent.redo_test():
-                    # exit from test case
 
                 if agent.fault_detected():
                     agent.on_fault()
@@ -75,9 +82,16 @@ class Agent(PublisherSource):
 
                     data = agent.get_data()
 
+                if agent.redo_test():
+                    agent.on_redo()
+                    # exit from test case
+
             # Test case stopped
 
             agent.on_test_end()
+
+            # Eventually the epoch ends...
+            agent.on_epoch_end()
 
         # Reset the options
         agent.reset()
@@ -161,7 +175,7 @@ class Agent(PublisherSource):
                 `stop_execution` is called.
         """
 
-    def get_supported_paths(self, protocol: str) -> list[list[str]]:
+    def get_supported_paths(self, protocol: str) -> list[list[dict[str, str | bool]]]:
         """Get the all the paths supported by the current agent for the given protocol.
 
         This method should be called from the engine before starting a run.
@@ -170,8 +184,20 @@ class Agent(PublisherSource):
             protocol: The name of the protocol to be used.
 
         Returns:
-            list[list[str]]|bool: The list of paths supported by the current agent. Each element 
-                of the main list is a list of message names that compose the path. If there are no specific paths supported, an empty list should be returned.
+            list[list[dict[str, str | bool]]]: The list of paths supported by the current agent. 
+                Each element of the main list is a sub-list with elements of the following form:
+                ```
+                {
+                    "name": str,
+                    "optional": bool
+                }
+                ```
+                Here:
+                - `"name"` is the name of a message.
+                - `"optional"` indicates if the message is optional, which means that it may or may 
+                    not be sent.
+                Each of these sub-lists compose one of the paths supported by the current agent. If 
+                there are no specific paths supported, an empty main list should be returned.
 
         Raises:
             AgentError: If some error occurred at the agent side. In this case the method 
@@ -179,6 +205,22 @@ class Agent(PublisherSource):
         """
 
         return []
+
+    def on_epoch_start(self, ctx: ExecutionContext):
+        """Called right before the start of an epoch.
+
+        Raises:
+            AgentError: If some error occurred at the agent side. In this case the method 
+                `stop_execution` is called.
+        """
+
+    def on_epoch_end(self):
+        """Called right after the end of an epoch.
+
+        Raises:
+             AgentError: If some error occurred at the agent side. In this case the method 
+                `stop_execution` is called.
+        """
 
     def on_test_start(self, ctx: ExecutionContext):
         """Called right before the start of a test case.
@@ -231,6 +273,14 @@ class Agent(PublisherSource):
         """
 
         return False
+
+    def on_redo(self):
+        """Called when a test is going to be re-performed.
+
+        Raises:
+            AgentError: If some error occurred at the agent side. In this case the method 
+                `stop_execution` is called.
+        """
 
     def fault_detected(self) -> bool:
         """Check if a fault was detected during the current test case.
@@ -397,16 +447,15 @@ class AgentMultiplexer:
             self._log_for(agent).critical("Unrecoverable error: %s", str(e))
             raise AgentError(f"Agent {agent.name}: {str(e)}") from e
 
-    def get_supported_paths(self, protocol: str) -> list[list[str]]:
+    def get_supported_paths(self, protocol: str) -> list[list[dict[str, str | bool]]]:
         """Executes `get_supported_paths` for each agent in the multiplexer.
 
         Args:
             protocol: The name of the protocol to be used.
 
         Returns:
-            list[list[str]]|bool: The list of all the paths supported the current agents. Each 
-            element of the main list is a list of message names that compose the path. If there are 
-            no specific paths supported, an empty list should be returned.
+            list[list[dict[str, str | bool]]]: The concatenation of all the results of the calls to 
+                `get_supported_paths`.
 
         Raises:
             AgentError: If any of the agents wants to stop the execution.
@@ -422,6 +471,36 @@ class AgentMultiplexer:
                 self._handle_error(agent, e)
 
         return res
+
+    def on_epoch_start(self, ctx: ExecutionContext):
+        """Executes `on_epoch_start` for each agent in the multiplexer.
+
+        Raises:
+            AgentError: If any of the agents wants to stop the execution.
+        """
+
+        for agent in self._agents:
+            try:
+                agent.on_epoch_start(ctx)
+                time.sleep(agent.wait_start_time)
+            except AgentError as e:
+                self._handle_error(agent, e)
+
+    def on_epoch_end(self):
+        """Executes `on_epoch_end` for each agent in the multiplexer.
+
+        Note: the order of agents in which `on_epoch_end` is called is the inverse of the order in 
+        which `on_epoch_start` is called.
+
+        Raises:
+            AgentError: If any of the agents wants to stop the execution.
+        """
+
+        for agent in self._agents[::-1]:
+            try:
+                agent.on_epoch_end()
+            except AgentError as e:
+                self._handle_error(agent, e)
 
     def on_test_start(self, ctx: ExecutionContext):
         """Executes `on_test_start` for each agent in the multiplexer.
@@ -517,6 +596,19 @@ class AgentMultiplexer:
                 self._handle_error(agent, e)
 
         return redo
+
+    def on_redo(self):
+        """Executes `on_redo` for each agent in the multiplexer.
+
+        Raises:
+            AgentError: If any of the agents wants to stop the execution.
+        """
+
+        for agent in self._agents:
+            try:
+                agent.on_redo()
+            except AgentError as e:
+                self._handle_error(agent, e)
 
     def fault_detected(self) -> bool:
         """Executes `fault_detected` for each agent in the multiplexer.
