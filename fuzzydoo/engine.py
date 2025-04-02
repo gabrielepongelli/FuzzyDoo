@@ -788,7 +788,15 @@ class Engine:
                 self._logger.debug("Encoded data %s", encoded_msg.raw())
 
                 if to_be_fuzzed:
-                    data = encoded_msg.raw()
+
+                    if encoded_msg.delay > 0:
+                        self._logger.debug(
+                            "Waiting %s seconds before sending the message", encoded_msg.delay)
+                        start = time.time()
+                        while time.time() - start < encoded_msg.delay:
+                            time.sleep(0.1)
+
+                    data = encoded_msg.raw() * encoded_msg.n_replay
 
                 # send the message data to the destination publisher
                 try:
