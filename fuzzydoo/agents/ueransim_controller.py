@@ -857,7 +857,6 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
         self.ue = None
         self.orchestrator = None
 
-        self._is_delay_mutation: bool = False
         self._last_exception: Exception | None = None
         self._is_recoverable: bool = True
 
@@ -975,8 +974,6 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
             logging.error(msg)
             raise AgentError(msg)
 
-        self._is_delay_mutation = ctx.mutator is not None and ctx.mutator == "DelayedMessageMutator"
-
         self.gnb = UERANSIMToolDescriptor(
             'gNB', self.options['gnb_exe_path'], self.options['gnb_config_path'])
 
@@ -1008,8 +1005,7 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
         self.orchestrator = None
 
         if self._last_exception is not None \
-                and (not self._is_delay_mutation
-                     or "no response from the network" not in str(self._last_exception)) \
+                and "no response from the network" not in str(self._last_exception) \
                 and "protocol/semantic-error" not in str(self._last_exception) \
                 and "Error indication received" not in str(self._last_exception):
             raise self._last_exception
@@ -1036,9 +1032,8 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
 
     @override
     def redo_test(self) -> bool:
-        # in case we are delaying messages, ignore errors related to missing responses
-        if self._is_delay_mutation \
-                and self._last_exception is not None \
+        # ignore errors related to missing responses
+        if self._last_exception is not None \
                 and "no response from the network" in str(self._last_exception):
             return False
 
@@ -1104,9 +1099,8 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
 
     @override
     def stop_execution(self) -> bool:
-        # in case we are delaying messages, ignore errors related to missing responses
-        if self._is_delay_mutation \
-                and self._last_exception is not None \
+        # ignore errors related to missing responses
+        if self._last_exception is not None \
                 and "no response from the network" in str(self._last_exception):
             return False
 

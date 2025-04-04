@@ -490,3 +490,9 @@ class GrpcServerAgent(Agent, agent_pb2_grpc.AgentServiceServicer):
 
         # pylint: disable=no-member
         return agent_pb2.ResponseMessage(status=agent_pb2.ResponseMessage.Status.OK, flag=res)
+
+    def __eq__(self, value):
+        return isinstance(value, GrpcServerAgent) \
+            and self.name == value.name \
+            and self.address == value.address \
+            and self.port == value.port

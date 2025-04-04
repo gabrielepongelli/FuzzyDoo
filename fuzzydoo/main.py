@@ -633,7 +633,7 @@ def parse_configs(file: FileType, err: Callable[[str], NoReturn]) -> dict[str, l
 
     for run in res['runs']:
         for agent, _ in cast(list[tuple[Agent, Any]], run['agents']):
-            if next((a for a in res['agents'] if a.name == agent.name), None) is None:
+            if next((a for a in res['agents'] if a == agent), None) is None:
                 res['agents'].append(agent)
 
     return res

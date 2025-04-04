@@ -31,11 +31,26 @@ class GrpcClientAgent(Agent):
 
         super().__init__(name, wait_start_time, **kwargs)
 
+        self._ip: str = kwargs['ip']
+        self._port: int = kwargs['port']
+
         self._channel = grpc.insecure_channel(
-            f"{kwargs['ip']}:{kwargs['port']}",
+            f"{self._ip}:{self._port}",
             options=[('grpc.max_receive_message_length', -1), ('grpc.max_send_message_length', -1)]
         )
         self._stub = AgentServiceStub(self._channel)
+
+    @property
+    def ip(self) -> str:
+        """The IP address of the gRPC server."""
+
+        return self._ip
+
+    @property
+    def port(self) -> int:
+        """The port the gRPC server is listening on."""
+
+        return self._port
 
     @override
     def set_options(self, **kwargs):
@@ -454,3 +469,9 @@ class GrpcClientAgent(Agent):
             return AgentError("Unknown result")
 
         return response.flag
+
+    def __eq__(self, value):
+        return isinstance(value, GrpcClientAgent) \
+            and self.name == value.name \
+            and self.ip == value.ip \
+            and self.port == value.port
