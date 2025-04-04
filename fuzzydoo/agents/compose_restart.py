@@ -67,10 +67,6 @@ class ComposeRestartAgent(GrpcClientAgent):
         return False
 
     @override
-    def stop_execution(self) -> bool:
-        return False
-
-    @override
     def start(self, pub_id: int):
         return
 
@@ -120,6 +116,7 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         self.set_options(**kwargs)
 
         self._fault_detected: bool = False
+        self._signal_shutdown: bool = False
 
     def set_options(self, **kwargs):
         for key, val in kwargs.items():
@@ -136,6 +133,7 @@ class ComposeRestartServerAgent(GrpcServerAgent):
     def reset(self):
         self.options = dict(self.DEFAULT_OPTIONS)
         self._fault_detected = False
+        self._signal_shutdown = False
 
     def _is_running(self) -> bool:
         """Check whether the docker compose setup is already running."""
@@ -148,9 +146,10 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         try:
             result: subprocess.CompletedProcess[str] = subprocess.run(
                 ["docker", "compose", "-f", self.options['compose_yaml_path'], "ps", "-q"],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+                capture_output=True, text=True, check=True
             )
         except subprocess.CalledProcessError as e:
+            self._signal_shutdown = True
             err_msg = str(e.stderr).strip()
             logging.error(err_msg)
             raise AgentError(err_msg) from e
@@ -169,9 +168,10 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         try:
             subprocess.run(
                 ["docker", "compose", "-f", self.options['compose_yaml_path'], "up", "-d"],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+                capture_output=True, text=True, check=True
             )
         except subprocess.CalledProcessError as e:
+            self._signal_shutdown = True
             err_msg = str(e.stderr).strip()
             logging.error(err_msg)
             raise AgentError(err_msg) from e
@@ -191,18 +191,12 @@ class ComposeRestartServerAgent(GrpcServerAgent):
         if self.options['clean_volumes_on_restart']:
             compose_down_cmd.append("-v")
         try:
-            subprocess.run(
-                compose_down_cmd,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
-            )
+            subprocess.run(compose_down_cmd, capture_output=True, text=True, check=True)
         except subprocess.CalledProcessError as e1:
             # we need to restart the docker service before removing the network
             try:
                 # get the root path of docker
-                res = subprocess.run(
-                    ["docker", "info"],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
-                )
+                res = subprocess.run(["docker", "info"], capture_output=True, text=True, check=True)
                 docker_root_dir = re.search(r"Docker Root Dir:\s*(.*)", res.stdout)
                 if not docker_root_dir:
                     err_msg = str(e1.stderr).strip()
@@ -210,24 +204,56 @@ class ComposeRestartServerAgent(GrpcServerAgent):
                     raise AgentError(err_msg) from e1
 
                 # restart the docker service
+                service_restarted = False
                 if 'snap' in docker_root_dir.group(1):
                     subprocess.run(
                         ["snap", "restart", "docker"],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+                        capture_output=True, text=True, check=True
                     )
+
+                    start = time.time()
+                    while time.time() - start < 60 and not service_restarted:
+                        res = subprocess.run(
+                            ["snap", "services"],
+                            capture_output=True, text=True, check=True
+                        )
+
+                        for line in res.stdout.splitlines():
+                            if "docker.dockerd" in line and "active" in line:
+                                service_restarted = True
+                                break
+
+                        time.sleep(0.1)
+
                 else:
                     subprocess.run(
                         ["systemctl", "restart", "docker.service"],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+                        capture_output=True, text=True, check=True
                     )
 
-                time.sleep(1)
+                    start = time.time()
+                    while time.time() - start < 60 and not service_restarted:
+                        res = subprocess.run(
+                            ["systemctl", "status", "docker"],
+                            capture_output=True, text=True, check=True
+                        )
 
-                subprocess.run(
-                    compose_down_cmd,
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
-                )
+                        for line in res.stdout.splitlines():
+                            if "Active" in line and "active (running)" in line:
+                                service_restarted = True
+                                break
+
+                        time.sleep(0.1)
+
+                if not service_restarted:
+                    self._signal_shutdown = True
+                    err_msg = "Could not restart the docker service"
+                    logging.error(err_msg)
+                    raise AgentError(err_msg) from e1
+
+                subprocess.run(compose_down_cmd, capture_output=True, text=True, check=True)
             except subprocess.CalledProcessError as e2:
+                self._signal_shutdown = True
                 err_msg = str(e2.stderr).strip()
                 logging.error(err_msg)
                 raise AgentError(err_msg) from e2
@@ -268,6 +294,10 @@ class ComposeRestartServerAgent(GrpcServerAgent):
     @override
     def on_shutdown(self):
         self._stop_compose()
+
+    @override
+    def stop_execution(self) -> bool:
+        return self._signal_shutdown
 
 
 __all__ = ['ComposeRestartAgent']

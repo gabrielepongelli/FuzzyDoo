@@ -1009,7 +1009,9 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
 
         if self._last_exception is not None \
                 and (not self._is_delay_mutation
-                     or "no response from the network" not in str(self._last_exception)):
+                     or "no response from the network" not in str(self._last_exception)) \
+                and "protocol/semantic-error" not in str(self._last_exception) \
+                and "Error indication received" not in str(self._last_exception):
             raise self._last_exception
 
     @override
@@ -1042,7 +1044,8 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
 
         # ignore error indications received
         if self._last_exception is not None \
-                and "protocol/semantic-error" in str(self._last_exception):
+                and ("protocol/semantic-error" in str(self._last_exception)
+                     or "Error indication received" in str(self._last_exception)):
             return False
 
         return self._last_exception is not None and self._is_recoverable
@@ -1109,7 +1112,8 @@ class UERANSIMControllerServerAgent(GrpcServerAgent):
 
         # ignore error indications received
         if self._last_exception is not None \
-                and "protocol/semantic-error" in str(self._last_exception):
+                and ("protocol/semantic-error" in str(self._last_exception)
+                     or "Error indication received" in str(self._last_exception)):
             return False
 
         return self._last_exception is not None and not self._is_recoverable
