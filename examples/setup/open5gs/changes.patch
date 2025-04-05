@@ -1,0 +1,79 @@
+diff --git a/.env b/.env
+index 7528d67..0ee8230 100644
+--- a/.env
++++ b/.env
+@@ -5,7 +5,7 @@ MCC=001
+ MNC=01
+ 
+ TEST_NETWORK=172.22.0.0/24
+-DOCKER_HOST_IP=192.168.1.223
++DOCKER_HOST_IP=192.168.56.101
+ 
+ # MONGODB
+ MONGO_IP=172.22.0.2
+@@ -20,7 +20,7 @@ PCRF_BIND_PORT=3873
+ # SGW
+ SGWC_IP=172.22.0.5
+ SGWU_IP=172.22.0.6
+-SGWU_ADVERTISE_IP=172.22.0.6
++SGWU_ADVERTISE_IP=192.168.56.101
+ 
+ # SMF
+ SMF_IP=172.22.0.7
+@@ -29,7 +29,7 @@ SMF_DNS2=8.8.4.4
+ 
+ # UPF
+ UPF_IP=172.22.0.8
+-UPF_ADVERTISE_IP=172.22.0.8
++UPF_ADVERTISE_IP=192.168.56.101
+ 
+ # MME
+ MME_IP=172.22.0.9
+diff --git a/base/Dockerfile b/base/Dockerfile
+index bf2fda1..a8158e2 100644
+--- a/base/Dockerfile
++++ b/base/Dockerfile
+@@ -24,7 +24,7 @@
+ # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ 
+-FROM ubuntu:focal as builder
++FROM ubuntu:focal AS builder
+ 
+ ENV DEBIAN_FRONTEND=noninteractive
+ 
+diff --git a/sa-deploy.yaml b/sa-deploy.yaml
+index 4745d34..8b0ae2f 100644
+--- a/sa-deploy.yaml
++++ b/sa-deploy.yaml
+@@ -184,8 +184,8 @@ services:
+       - "2152/udp"
+       - "8805/udp"
+       - "9091/tcp"
+-    # ports:
+-    #   - "2152:2152/udp"
++    ports:
++      - "2152:2152/udp"
+     cap_add:
+       - NET_ADMIN
+     privileged: true
+@@ -219,8 +219,8 @@ services:
+       - "38412/sctp"
+       - "7777/tcp"
+       - "9091/tcp"
+-    # ports:
+-    #   - "38412:38412/sctp"
++    ports:
++      - "38412:38412/sctp"
+     networks:
+       default:
+         ipv4_address: ${AMF_IP}
+@@ -336,6 +336,8 @@ networks:
+     ipam:
+       config:
+         - subnet: ${TEST_NETWORK}
++    driver_opts:
++      com.docker.network.bridge.name: br-open5gs
+ volumes:
+   grafana_data:
+     name: grafana_data

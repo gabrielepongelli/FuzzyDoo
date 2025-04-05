@@ -1,0 +1,73 @@
+diff --git a/docker-compose.yaml b/docker-compose.yaml
+index 39fe24c..6553716 100644
+--- a/docker-compose.yaml
++++ b/docker-compose.yaml
+@@ -1,10 +1,14 @@
+-version: "3.8"
++# version: "3.8"
+ 
+ services:
+   free5gc-upf:
+     container_name: upf
+     image: free5gc/upf:v4.0.0
+     command: bash -c "./upf-iptables.sh && ./upf -c ./config/upfcfg.yaml"
++    expose:
++      - "2152/udp"
++    ports:
++      - "2152:2152/udp"
+     volumes:
+       - ./config/upfcfg.yaml:/free5gc/config/upfcfg.yaml
+       - ./config/upf-iptables.sh:/free5gc/upf-iptables.sh
+@@ -53,6 +57,9 @@ services:
+     command: ./amf -c ./config/amfcfg.yaml
+     expose:
+       - "8000"
++      - "38412/sctp"
++    ports:
++      - "38412:38412/sctp"
+     volumes:
+       - ./config/amfcfg.yaml:/free5gc/config/amfcfg.yaml
+       - ./cert:/free5gc/cert
+@@ -279,24 +286,24 @@ services:
+       - db
+       - free5gc-nrf
+ 
+-  ueransim:
+-    container_name: ueransim
+-    image: free5gc/ueransim:latest
+-    command: ./nr-gnb -c ./config/gnbcfg.yaml
+-    volumes:
+-      - ./config/gnbcfg.yaml:/ueransim/config/gnbcfg.yaml
+-      - ./config/uecfg.yaml:/ueransim/config/uecfg.yaml
+-    cap_add:
+-      - NET_ADMIN
+-    devices:
+-      - "/dev/net/tun"
+-    networks:
+-      privnet:
+-        aliases:
+-          - gnb.free5gc.org
+-    depends_on:
+-      - free5gc-amf
+-      - free5gc-upf
++  #ueransim:
++  #  container_name: ueransim
++  #  image: free5gc/ueransim:latest
++  #  command: ./nr-gnb -c ./config/gnbcfg.yaml
++  #  volumes:
++  #    - ./config/gnbcfg.yaml:/ueransim/config/gnbcfg.yaml
++  #    - ./config/uecfg.yaml:/ueransim/config/uecfg.yaml
++  #  cap_add:
++  #    - NET_ADMIN
++  #  devices:
++  #    - "/dev/net/tun"
++  #  networks:
++  #    privnet:
++  #      aliases:
++  #        - gnb.free5gc.org
++  #  depends_on:
++  #    - free5gc-amf
++  #    - free5gc-upf
+ 
+   n3iwue:
+     container_name: n3iwue

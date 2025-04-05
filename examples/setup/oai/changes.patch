@@ -1,0 +1,46 @@
+diff --git a/docker-compose/conf/basic_nrf_config.yaml b/docker-compose/conf/basic_nrf_config.yaml
+index c55f7c9..bbfa6df 100644
+--- a/docker-compose/conf/basic_nrf_config.yaml
++++ b/docker-compose/conf/basic_nrf_config.yaml
+@@ -159,11 +159,13 @@ amf:
+         - *embb_slice2
+         - *custom_slice
+   supported_integrity_algorithms:
+-    - "NIA0"
++    # see https://github.com/aligungr/UERANSIM/issues/676
++    #- "NIA0"
+     - "NIA1"
+     - "NIA2"
+   supported_encryption_algorithms:
+-    - "NEA0"
++    # see https://github.com/aligungr/UERANSIM/issues/676
++    #- "NEA0"
+     - "NEA1"
+     - "NEA2"
+ 
+diff --git a/docker-compose/docker-compose-basic-nrf.yaml b/docker-compose/docker-compose-basic-nrf.yaml
+index 519fe59..ae9a98a 100644
+--- a/docker-compose/docker-compose-basic-nrf.yaml
++++ b/docker-compose/docker-compose-basic-nrf.yaml
+@@ -1,4 +1,4 @@
+-version: '3.8'
++# version: '3.8'
+ services:
+     mysql:
+         container_name: "mysql"
+@@ -87,10 +87,12 @@ services:
+     oai-amf:
+         container_name: "oai-amf"
+         image: oaisoftwarealliance/oai-amf:v2.1.0
++        ports:
++            - "38412:38412/sctp"
+         expose:
+-            - 80/tcp
+-            - 8080/tcp
+-            - 38412/sctp
++            - "80/tcp"
++            - "8080/tcp"
++            - "38412/sctp"
+         volumes:
+             - ./conf/basic_nrf_config.yaml:/openair-amf/etc/config.yaml
+         environment:

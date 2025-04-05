@@ -1,0 +1,330 @@
+configs:
+  runs:
+    - protocol_name: "ngap"
+      output_dir: "./output"
+      actor: "ng-ran node"
+      actors:
+        - actor: "ng-ran node"
+          as: "source"
+        - actor: "amf"
+          as: "target"
+      publishers:
+        - name: "SctpProxy"
+          ref: 1
+          actors:
+            - "source"
+            - "target"
+      agents:
+        - name: "NetworkFunctionProxy"
+          configs:
+            ip: "192.168.56.101"
+            port: 9000
+          options:
+            compose_yaml_path: "./docker_open5gs/sa-deploy.yaml"
+            network_name: "default"
+            proxy_port: 8080
+            restart_on_epoch: true
+            restart_on_fault: true
+            exclude:
+              - "mongo"
+              - "webui"
+              - "metrics"
+              - "grafana"
+        - name: "ComposeRestart"
+          configs:
+            ip: "192.168.56.101"
+            port: 9001
+          options:
+            compose_yaml_path: "./docker_open5gs/sa-deploy.yaml"
+            restart_on_epoch: true
+            restart_on_fault: true
+            clean_volumes_on_restart: true
+        - name: "ContainerMonitor"
+          configs:
+            ip: "192.168.56.101"
+            port: 9002
+          options:
+            containers:
+              - "nrf"
+              - "scp"
+              - "ausf"
+              - "udr"
+              - "udm"
+              - "smf"
+              - "upf"
+              - "amf"
+              - "pcf"
+              - "bsf"
+              - "nssf"
+        - name: "NetworkSniffer"
+          configs:
+            ip: "127.0.0.1"
+            port: 9003
+          options:
+            iface: "enp0s8"
+            filter: "sctp"
+            restart_on_epoch: true
+            restart_on_fault: true
+        - name: "CommandExec"
+          configs:
+            ip: "192.168.56.101"
+            port: 9004
+          options:
+            cmd: "./scripts/register_sim.py 192.168.56.101:9999 admin 1423 001011234567895 8baf473f2f8fd09487cccbd7097c6862 OP 11111111111111111111111111111111"
+            exec_on_test_start: true
+            max_executions: 1
+            reset_on_epoch_end: true
+            reset_on_fault: true
+        - name: "NetworkProxy"
+          id: 1
+          configs:
+            ip: "127.0.0.1"
+            port: 9005
+          options:
+            listen:
+              ip: "127.0.0.1"
+              port: 38412
+            forward:
+              from_ip: "192.168.56.102"
+              to_ip: "192.168.56.101"
+              to_port: 38412
+            restart_on_test: true
+        - name: "UERANSIMController"
+          configs:
+            ip: "127.0.0.1"
+            port: 9006
+          options:
+            gnb:
+              exe_path: "./UERANSIM/build/nr-gnb"
+              config_path: "./UERANSIM/config/gnb_w_proxy.yaml"
+              direct_config_path: "./UERANSIM/config/gnb.yaml"
+            ue:
+              exe_path: "./UERANSIM/build/nr-ue"
+              config_path: "./UERANSIM/config/ue.yaml"
+            cli_path: "./UERANSIM/build/nr-cli"
+
+    - protocol_name: "nas-mm"
+      output_dir: "./output"
+      actor: "ue"
+      actors:
+        - actor: "ue"
+          as: "source"
+        - actor: "amf"
+          as: "target"
+      publishers:
+        - name: "NetworkProxy"
+          ref: 1
+          actors:
+            - "source"
+            - "target"
+      agents:
+        - name: "NetworkFunctionProxy"
+          configs:
+            ip: "192.168.56.101"
+            port: 9000
+          options:
+            compose_yaml_path: "./docker_open5gs/sa-deploy.yaml"
+            network_name: "default"
+            proxy_port: 8080
+            restart_on_epoch: true
+            restart_on_fault: true
+            exclude:
+              - "mongo"
+              - "webui"
+              - "metrics"
+              - "grafana"
+        - name: "ComposeRestart"
+          configs:
+            ip: "192.168.56.101"
+            port: 9001
+          options:
+            compose_yaml_path: "./docker_open5gs/sa-deploy.yaml"
+            restart_on_epoch: true
+            restart_on_fault: true
+            clean_volumes_on_restart: true
+        - name: "ContainerMonitor"
+          configs:
+            ip: "192.168.56.101"
+            port: 9002
+          options:
+            containers:
+              - "nrf"
+              - "scp"
+              - "ausf"
+              - "udr"
+              - "udm"
+              - "smf"
+              - "upf"
+              - "amf"
+              - "pcf"
+              - "bsf"
+              - "nssf"
+        - name: "NetworkSniffer"
+          configs:
+            ip: "127.0.0.1"
+            port: 9003
+          options:
+            iface: "enp0s8"
+            filter: "sctp"
+            restart_on_epoch: true
+            restart_on_fault: true
+        - name: "CommandExec"
+          configs:
+            ip: "192.168.56.101"
+            port: 9004
+          options:
+            cmd: "./scripts/register_sim.py 192.168.56.101:9999 admin 1423 001011234567895 8baf473f2f8fd09487cccbd7097c6862 OP 11111111111111111111111111111111"
+            exec_on_test_start: true
+            max_executions: 1
+            reset_on_epoch_end: true
+            reset_on_fault: true
+        - name: "NetworkProxy"
+          id: 1
+          configs:
+            ip: "127.0.0.1"
+            port: 9005
+          options:
+            listen:
+              ip: "127.0.0.1"
+              port: 38412
+            forward:
+              from_ip: "192.168.56.102"
+              to_ip: "192.168.56.101"
+              to_port: 38412
+            restart_on_test: true
+        - name: "UERANSIMController"
+          configs:
+            ip: "127.0.0.1"
+            port: 9006
+          options:
+            gnb:
+              exe_path: "./UERANSIM/build/nr-gnb"
+              config_path: "./UERANSIM/config/gnb_w_proxy.yaml"
+              direct_config_path: "./UERANSIM/config/gnb.yaml"
+            ue:
+              exe_path: "./UERANSIM/build/nr-ue"
+              config_path: "./UERANSIM/config/ue.yaml"
+            cli_path: "./UERANSIM/build/nr-cli"
+      encoders:
+        - name: "NASSecurity"
+          id: 2
+          configs:
+            op: "11111111111111111111111111111111"
+            op_type: "OP"
+            key: "8baf473f2f8fd09487cccbd7097c6862"
+            mcc: 001
+            mnc: 01
+            supi: "001011234567895"
+      decoders:
+        - name: "NASSecurity"
+          ref: 2
+
+    - protocol_name: "nas-sm"
+      output_dir: "./output"
+      actor: "ue"
+      actors:
+        - actor: "ue"
+          as: "source"
+        - actor: "smf"
+          as: "target"
+      publishers:
+        - name: "NetworkProxy"
+          ref: 1
+          actors:
+            - "source"
+            - "target"
+      agents:
+        - name: "NetworkFunctionProxy"
+          configs:
+            ip: "192.168.56.101"
+            port: 9000
+          options:
+            compose_yaml_path: "./docker_open5gs/sa-deploy.yaml"
+            network_name: "default"
+            proxy_port: 8080
+            restart_on_epoch: true
+            restart_on_fault: true
+            exclude:
+              - "mongo"
+              - "webui"
+              - "metrics"
+              - "grafana"
+        - name: "ComposeRestart"
+          configs:
+            ip: "192.168.56.101"
+            port: 9001
+          options:
+            compose_yaml_path: "./docker_open5gs/sa-deploy.yaml"
+            restart_on_epoch: true
+            restart_on_fault: true
+            clean_volumes_on_restart: true
+        - name: "ContainerMonitor"
+          configs:
+            ip: "192.168.56.101"
+            port: 9002
+          options:
+            containers:
+              - "nrf"
+              - "scp"
+              - "ausf"
+              - "udr"
+              - "udm"
+              - "smf"
+              - "upf"
+              - "amf"
+              - "pcf"
+              - "bsf"
+              - "nssf"
+        - name: "NetworkSniffer"
+          configs:
+            ip: "127.0.0.1"
+            port: 9003
+          options:
+            iface: "enp0s8"
+            filter: "sctp"
+            restart_on_epoch: true
+            restart_on_fault: true
+        - name: "CommandExec"
+          configs:
+            ip: "192.168.56.101"
+            port: 9004
+          options:
+            cmd: "./scripts/register_sim.py 192.168.56.101:9999 admin 1423 001011234567895 8baf473f2f8fd09487cccbd7097c6862 OP 11111111111111111111111111111111"
+            exec_on_test_start: true
+            max_executions: 1
+            reset_on_epoch_end: true
+            reset_on_fault: true
+        - name: "NetworkProxy"
+          id: 1
+          configs:
+            ip: "127.0.0.1"
+            port: 9005
+          options:
+            listen:
+              ip: "127.0.0.1"
+              port: 38412
+            forward:
+              from_ip: "192.168.56.102"
+              to_ip: "192.168.56.101"
+              to_port: 38412
+            sim:
+              op: "11111111111111111111111111111111"
+              op_type: "OP"
+              key: "8baf473f2f8fd09487cccbd7097c6862"
+              mcc: 001
+              mnc: 01
+              supi: "001011234567895"
+            restart_on_test: true
+        - name: "UERANSIMController"
+          configs:
+            ip: "127.0.0.1"
+            port: 9006
+          options:
+            gnb:
+              exe_path: "./UERANSIM/build/nr-gnb"
+              config_path: "./UERANSIM/config/gnb_w_proxy.yaml"
+              direct_config_path: "./UERANSIM/config/gnb.yaml"
+            ue:
+              exe_path: "./UERANSIM/build/nr-ue"
+              config_path: "./UERANSIM/config/ue.yaml"
+            cli_path: "./UERANSIM/build/nr-cli"
