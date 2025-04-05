@@ -855,9 +855,21 @@ class Engine:
         return True, fault_detected
 
     def _check_fault(self, path: ProtocolPath, mutation: Mutation) -> bool:
-        """_summary_
+        """Checks for faults during the execution of a test case and handles the findings.
 
-        _extended_summary_
+        This method determines if a fault has been detected by the agents during the execution of a 
+        test case. If a fault is detected or findings are to be produced regardless, it collects 
+        data from the agent, generates a case report and saves the findings.
+
+        Args:
+            path: The protocol path associated with the test case.
+            mutation: The mutation applied during the test case execution.
+
+        Returns:
+            bool: `True` if a fault was detected or findings were produced, `False` otherwise.
+
+        Raises:
+            TestCaseExecutionError: If an error occurs while interacting with some agent.
         """
 
         try:
