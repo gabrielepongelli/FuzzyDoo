@@ -5,7 +5,7 @@
 # FuzzyDoo: Your Fuzzer for 5G Core Networks
 
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)
-![GitHub License](https://img.shields.io/github/license/gabrielepongelli/FuzzyDoo)
+![GitHub License](https://img.shields.io/badge/license-MIT-red)
 
 ## Overview
 
