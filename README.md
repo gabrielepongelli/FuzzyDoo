@@ -1,6 +1,6 @@
-<div style="text-align:center">
+<p align="center">
     <img alt="FuzzyDoo Logo" src="./logo.svg" width="50%" height="auto" />
-</div>
+</p>
 <br><br>
 
 # FuzzyDoo: Your Fuzzer for 5G Core Networks

@@ -17,7 +17,7 @@ The testing setup for these examples requires 2 virtual machines:
   - All required files to run the 5G Core Network via Docker
   - `fuzzydoo` with all the agent dependencies
 
-### CFuzzer & Emulation VM
+### Fuzzer & Emulation VM
 
 - **Purpose:** Hosts the fuzzer and UERANSIM tools (UE and gNB).
 - **Specifications:**
