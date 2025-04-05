@@ -20,8 +20,6 @@ Key features include:
 
 The choice of the name reflects the fuzzer’s purpose: to "unmask" hidden bugs and weaknesses, much like Scooby-Doo and the gang uncover hidden truths behind seemingly impenetrable mysteries.
 
----
-
 ## Dependencies
 
 ### General Requirements
@@ -61,8 +59,6 @@ sudo modprobe br-netfilter
 
 The `UERANSIMController` agent requires the UERANSIM simulator. Installation instructions can be found in the [UERANSIM GitHub Repository](https://github.com/aligungr/UERANSIM/wiki/Installation).
 
----
-
 ## Installation
 
 > **Note**: It is recommended to run this project inside a Python virtual environment.
@@ -92,8 +88,6 @@ The `UERANSIMController` agent requires the UERANSIM simulator. Installation ins
     make help
     ```
 
----
-
 ## Usage
 
 To start fuzzing with a given configuration file (`config.yaml`):
@@ -116,7 +110,7 @@ fuzzydoo --help
 
 ## License
 
-This project is licensed under the terms specified in the `LICENSE` file.
+This project is licensed under the MIT License - read the [LICENSE file](./LICENSE) for details.
 
 ## Contributions
 
