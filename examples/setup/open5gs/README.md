@@ -1,11 +1,11 @@
 # Open5gs Setup
 
-This setup was used to test **Open5gs v2.7.2-131-g04ec945** taken from [here](https://github.com/free5gc/free5gc-compose), with additional modifications applied using the `changes.patch` file.
+This setup was used to test **Open5gs v2.7.2-131-g04ec945** taken from [here](https://github.com/herlesupreeth/docker_open5gs), with additional modifications applied using the `changes.patch` file.
 
 ## Directory Structure
 
 ```text
-free5gc/
+open5gs/
  |-- README.md # This documentation file
  |-- config.yaml # Configuration for the fuzzer and agents
  |-- changes.patch # Patch applied to modify the core network setup

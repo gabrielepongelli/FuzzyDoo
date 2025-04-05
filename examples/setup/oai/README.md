@@ -1,11 +1,11 @@
 # OpenAirInterface Setup
 
-This setup was used to test **OpenAirInterface 2.1.0** taken from [here](https://github.com/free5gc/free5gc-compose), with additional modifications applied using the `changes.patch` file.
+This setup was used to test **OpenAirInterface 2.1.0** taken from [here](https://gitlab.eurecom.fr/oai/cn5g/oai-cn5g-fed), with additional modifications applied using the `changes.patch` file.
 
 ## Directory Structure
 
 ```text
-free5gc/
+oai/
  |-- README.md # This documentation file
  |-- config.yaml # Configuration for the fuzzer and agents
  |-- changes.patch # Patch applied to modify the core network setup
