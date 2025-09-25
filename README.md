@@ -115,3 +115,20 @@ This project is licensed under the MIT License - read the [LICENSE file](./LICEN
 ## Contributions
 
 Contributions are welcome! Please open an issue or submit a pull request for any improvements or fixes.
+
+## Citing
+
+If you find FuzzyDoo useful in your research or projects, we’d really appreciate it if you could cite our paper:
+
+```bibtex
+@article{fuzzydoo,
+    title = {FuzzyDoo: a Framework for Finding Flaws in the 5G Landscape},
+    journal = {Computer Networks},
+    pages = {111734},
+    year = {2025},
+    issn = {1389-1286},
+    author = {Rosario G. Garroppo, Michele Pagano, Gabriele Pongelli},
+}
+```
+
+This helps acknowledge the original research and gives credit to the work behind the framework.
