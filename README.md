@@ -4,7 +4,7 @@
 
 # FuzzyDoo: Your Fuzzer for 5G Core Networks
 
-![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)
+![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)
 ![GitHub License](https://img.shields.io/badge/license-MIT-red)
 
 ## Overview
@@ -33,7 +33,7 @@ The choice of the name reflects the fuzzer’s purpose: to "unmask" hidden bugs 
 
 ### Additional Requirements
 
-#### NetworkProxy Agent  
+#### NetworkProxy Agent
 
 The `NetworkProxy` agent requires `libsctp-dev` and `python3-dev`. On Debian/Ubuntu they can be installed with:
 
@@ -90,13 +90,17 @@ The `UERANSIMController` agent requires the UERANSIM simulator. Installation ins
 
 ## Usage
 
+### Fuzzer
+
 To start fuzzing with a given configuration file (`config.yaml`):
 
 ```sh
 fuzzydoo fuzz config.yaml
 ```
 
-If a vulnerability is detected for instance in run `1`, epoch `7`, test case `14` with an epoch seed of `0xaabbccddeeff0011`, you can replay the exact test case without rerunning the entire process:
+See the [examples/setup](./examples/setup/) directory for sample configurations.
+
+If a vulnerability is detected (e.g., in run `1`, epoch `7`, test case `14` with seed `0xaabbccddeeff0011`), replay it without re-running the entire fuzzing campaign:
 
 ```sh
 fuzzydoo replay config.yaml 0xaabbccddeeff0011 1 --epoch 7 --test-case 14
@@ -107,6 +111,33 @@ For a complete list of commands and options, run:
 ```sh
 fuzzydoo --help
 ```
+
+### Agents
+
+Currently, these are the available agents:
+
+- CommandExec
+- ContainerRestart
+- ContainerMonitor
+- NetworkFunctionProxy
+- NetworkProxy
+- NetworkSniffer
+- UERANSIMController
+
+Note: CommandExec, ContainerRestart, ContainerMonitor, and NetworkSniffer have no special installation requirements beyond the core dependencies.
+
+Each agent can be started by issuing a command obtained by translating its name from camel case to dash case. The command takes exactly 2 arguments:
+
+1. `--ip <IP>`: the IP address on which it should listen for incoming connections from the core.
+2. `--port <PORT>`: the port on which it should listen.
+
+For example, to start the `NetworkFunctionProxy` agent:
+
+```sh
+network-function-proxy --ip 127.0.0.1 --port 5000
+```
+
+For a brief description about each agent, use the `--help` argument.
 
 ## License
 
